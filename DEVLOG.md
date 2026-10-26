@@ -134,3 +134,24 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   first log); it resumed at 60 fps on return. 60 is the CADisplayLink default; 120 Hz ProMotion was not
   requested. Thermal state was not logged during the run. This is a trivial UI draw, so it says nothing about
   game rendering cost.
+
+## 2026-10-25: M1b game host and the private build
+
+- `ios/probe/mcla_game.cpp`: drives `rex::Runtime` one logged stage at a time, as the PS5 host does
+  (1 setup, 2 XEX load, 3 guest heap + suspended main thread = entry point, 4 resume without graphics,
+  5 resume with the Xenos GPU presenting into the app's layer). The public build compiles it without the
+  game (`MCLA_HAS_GAME=0`); the private build adds `generated/default` and the PS5's set of `src/` files.
+- `ios_host.h`: the iOS window and app context, shared by the graphics test and the game host.
+- SDK patch 07: `rexruntime` and `rexgpu-xenos` static on iOS (as on the PS5); iOS cannot load plugins.
+  The app links both with `-force_load`, so objects reached only through static initialisers stay.
+- Display link asks for the screen's top rate (120 Hz on ProMotion) in the graphics test and the game.
+- App icon slot: empty here; the private build adds the owner's icon.
+- [CI] Public build passed first try (run 40266430443): runtime and Xenos GPU emulator compile and link for
+  iOS; app 10.3 MB.
+- Private repo `shonufdonut-source/mcla-ios-private` (private): workflow, icon, PC serve script. The
+  generated code is packed on the PC (16.5 MB tar.gz, sources only) and served on the owner's tailnet
+  through a 127.0.0.1-only file server behind `tailscale serve` (no admin needed); the runner joins as an
+  ephemeral node, checks the SHA-256, builds, deletes it. IPA kept 3 days. Never committed anywhere.
+  Notes: `tailscale serve` of a folder needs Windows admin; it answers by tailnet name, not by IP; Git Bash
+  rewrites `/path` arguments (MSYS_NO_PATHCONV).
+- [assumed] Everything past the public build: private build time, link, and any stage on the iPad.
