@@ -71,7 +71,8 @@ jobs:
           check ios/probe-lib/librexgpu-xenos.a "rex::graphics::vulkan::DrawCounter()"
           check ios/probe-lib/librexgpu-xenos.a "rex::graphics::vulkan::HostDrawCounter()"
           check ios/probe-lib/librexgpu-xenos.a "rex::graphics::vulkan::SubmissionCounters("
-          check ios/probe-lib/librexgpu-xenos.a "rex::graphics::FormatInfo::Get(unsigned int)"
+          # Texture format info is built in rexcore, which librexruntime.a contains.
+          check ios/probe-lib/librexruntime.a "rex::graphics::FormatInfo::Get(unsigned int)"
           test "$missing" = 0
 
       - name: Generate Xcode project
