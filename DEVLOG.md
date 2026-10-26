@@ -128,3 +128,9 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   as far as the log shows.
 - [device, owner] Confirmed on screen: dark-blue background with the orange bar sweeping smoothly. M4 step 1
   (SDK -> MoltenVK direct -> iOS CAMetalLayer surface, clear-screen test) is done.
+- [device] Longer run of the same session (~2 min of painting): after warm-up (43.9, 51.0) it holds
+  59.8-60.0 fps for 26 consecutive 5 s windows, 6251 frames, no crash. One 20 s window at 4.4 fps with no log
+  lines in between: the display link stopped ticking, most likely the app left the foreground (sharing the
+  first log); it resumed at 60 fps on return. 60 is the CADisplayLink default; 120 Hz ProMotion was not
+  requested. Thermal state was not logged during the run. This is a trivial UI draw, so it says nothing about
+  game rendering cost.
