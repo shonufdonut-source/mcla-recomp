@@ -97,5 +97,15 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   memory path is verified on the iPad.**
 - Fibers deferred: only reachable through the `rexcrt_CreateFiber` hook, which MCLA's generated code does not
   reference (local read-only search of `generated/`, nothing copied).
-- Noted: the Documents folder no longer had `default.xex` after this install (1 file, 0 MB). Not investigated.
+- Noted (earlier run): the Documents folder no longer had `default.xex` after this install (1 file, 0 MB). Not investigated.
 - Not yet: the iOS surface (SDL/CAMetalLayer), calling MoltenVK directly, running on device.
+
+## 2026-10-25: M4 step 1, graphics path (SDK presenter through MoltenVK into a CAMetalLayer)
+
+- SDK patch 05: `CAMetalLayerSurface` reads its size from the layer when there is no SDL window.
+- SDK patch 06: `REX_PLATFORM_IOS`; on iOS `VulkanInstance` uses MoltenVK's `vkGetInstanceProcAddr` directly.
+- `ios/probe/mcla_gfx.cpp`: iOS windowed-app context + `Window` around the app's CAMetalLayer; SDK
+  `VulkanProvider` (GPU-emulation requirements first), presenter and immediate drawer paint a moving bar.
+  SDK log lines are forwarded to the app log. Startup report logs MetalFX support.
+- [CI] Built first try (run 40263116359): 5.8 MB arm64, 12 archives merged.
+- [assumed] Draws on the iPad. **Not run on the device yet.**

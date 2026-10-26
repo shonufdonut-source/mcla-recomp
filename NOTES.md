@@ -102,6 +102,20 @@ Nothing is built until you choose.
 - Memory: its own README says free Apple IDs get a smaller memory budget, and the "Increased Memory
   Limit" and "Extended Virtual Addressing" entitlements need a **paid** developer account.
 
+### 5a. From the owner's static analysis of GTA5Port v1.4.2 (`GTA5Port-analysis.md`, not run)
+
+- Custom Metal renderer fed by a graphics-command ring; links Metal, MetalKit, **MetalFX**.
+- **Precompiled shaders** (75 MB `shaders-iphoneos.metallib` plus reflection data). For MCLA through MoltenVK,
+  SPIR-V to MSL conversion happens at run time, so a persistent pipeline/shader cache matters to avoid stutter.
+- **BC textures transcoded to ASTC** (`PGBC1BlockToASTC`, `PGDecodeBC`): same plan as MCLA (A12X has no BC).
+- Memory-budget functions, texture mip reduction, normal vs increased-memory modes.
+
+### 5b. Upscaling options (assumed until measured)
+
+- MetalFX: believed to need A14 or newer (Apple GPU family 7) on iOS; the A12X reports family 5. The startup
+  report now logs `MTLFXSpatialScalerDescriptor.supportsDevice` to settle it.
+- The SDK presenter already has FSR 1 and CAS paint effects (Vulkan compute), which do not depend on MetalFX.
+
 ## 6. iloader (nab138/iloader, MIT, ~4.3k stars, pushed 2026-10-22)
 
 - Official sources are only the GitHub repo and iloader.app (per its README). Needs iTunes on Windows for
