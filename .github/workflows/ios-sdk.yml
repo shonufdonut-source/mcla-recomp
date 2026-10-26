@@ -4,11 +4,9 @@ name: iOS SDK build
 # Nothing here touches a game file or anything derived from one, so it is safe in a public repo.
 # It is a probe: it keeps going after errors (ninja -k 0) so one run lists everything that breaks.
 
+# The app workflow (ios-app.yml) now builds the SDK too; this full-SDK probe runs on demand.
 on:
   workflow_dispatch:
-  push:
-    branches: [ios-port]
-    paths: ["patches/**", "ios/sdk/**", ".github/workflows/ios-sdk.yml"]
 
 env:
   SDK_TAG: v0.10.0
@@ -21,22 +19,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Clone and patch the SDK
-        run: |
-          set -euo pipefail
-          git clone --recursive --branch "$SDK_TAG" https://github.com/rexglue/rexglue-sdk.git sdk
-          test "$(git -C sdk rev-parse HEAD)" = "$SDK_COMMIT"
-          git -C sdk apply "$GITHUB_WORKSPACE/patches/rexglue-v0.10.0-mcla.patch"
-          git -C sdk apply "$GITHUB_WORKSPACE/patches/rexglue-minmax-blend-factor.patch"
-          if [ -d ios/sdk/patches ]; then
-            for p in ios/sdk/patches/*.patch; do [ -e "$p" ] && git -C sdk apply "$GITHUB_WORKSPACE/$p"; done
-            # ios/sdk/patches/<name>/*.patch applies inside the submodule sdk/thirdparty/<name>.
-            for d in ios/sdk/patches/*/; do
-              [ -d "$d" ] || continue
-              sub="sdk/thirdparty/$(basename "$d")"
-              for p in "$d"*.patch; do [ -e "$p" ] && git -C "$sub" apply "$GITHUB_WORKSPACE/$p"; done
-            done
-          fi
-          git -C sdk status --short | head -20
+        run: bash ios/sdk/fetch_sdk.sh
 
       - name: Tool versions
         run: |

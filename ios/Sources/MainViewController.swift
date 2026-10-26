@@ -9,7 +9,7 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "MCLA (port M1)"
+        title = "MCLA (port M1b probe)"
         view.backgroundColor = .systemBackground
 
         textView.isEditable = false
@@ -26,8 +26,10 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
 
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: "Import game folder", style: .plain, target: self, action: #selector(importFolder))
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Share log", style: .plain, target: self, action: #selector(shareLog))
+        navigationItem.rightBarButtonItems = [
+            UIBarButtonItem(title: "Share log", style: .plain, target: self, action: #selector(shareLog)),
+            UIBarButtonItem(title: "Run probe", style: .plain, target: self, action: #selector(runProbe)),
+        ]
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(logAppended(_:)), name: Log.didAppend, object: nil)
@@ -61,9 +63,17 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
         textView.scrollRangeToVisible(end)
     }
 
+    @objc private func runProbe() {
+        DeviceProbe.run()
+    }
+
     @objc private func shareLog() {
-        let vc = UIActivityViewController(activityItems: [Log.shared.fileURL], applicationActivities: nil)
-        vc.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
+        var items: [Any] = [Log.shared.fileURL]
+        if FileManager.default.fileExists(atPath: Log.shared.previousURL.path) {
+            items.append(Log.shared.previousURL)
+        }
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        vc.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItems?.first
         present(vc, animated: true)
     }
 

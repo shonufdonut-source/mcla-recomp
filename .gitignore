@@ -62,3 +62,4 @@ keys.*
 /ios/Payload/
 /ios/*.ipa
 /ios/xcodebuild.log
+/ios/probe-lib/

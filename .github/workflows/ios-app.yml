@@ -1,0 +1,92 @@
+name: iOS app IPA
+
+# Builds the iPad app with the device probe: the ReXGlue SDK core and MoltenVK, built for
+# iOS arm64 and linked into the app. No game code, no game data, nothing derived from a
+# game file, so it is safe in a public repository. The playable build (which links the
+# recompiled game) belongs in a private repository and is a separate workflow.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-port]
+    paths: ["ios/**", "patches/**", ".github/workflows/ios-app.yml"]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          brew install xcodegen
+          command -v ninja || brew install ninja
+          xcodebuild -version
+
+      - name: Clone and patch the SDK
+        run: bash ios/sdk/fetch_sdk.sh
+
+      - name: Build SDK core, MoltenVK and the probe for iOS arm64
+        run: |
+          set -o pipefail
+          cmake -S ios/probe -B probe-build -G Ninja \
+            -DREXGLUE_SDK_DIR="$GITHUB_WORKSPACE/sdk" \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_SYSTEM_PROCESSOR=arm64 \
+            -DCMAKE_MACOSX_BUNDLE=OFF \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_STANDARD=23 \
+            -DREXGLUE_USE_VULKAN=ON -DREXGLUE_ENABLE_TRACY=OFF \
+            2>&1 | tee probe-configure.log | tail -n 30
+          cmake --build probe-build --target mcla_probe_all 2>&1 | tee probe-build.log | tail -n 40
+          mkdir -p ios/probe-lib
+          cp probe-build/libmcla_probe_all.a ios/probe-lib/
+          ls -l ios/probe-lib
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build app for device, unsigned
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project MCLA.xcodeproj -scheme MCLA -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log | tail -n 60
+
+      - name: Package unsigned IPA
+        working-directory: ios
+        run: |
+          APP=$(find build/Build/Products -maxdepth 2 -name 'MCLA.app' | head -n 1)
+          test -n "$APP"
+          test -x "$APP/MCLA" || { echo "no executable in $APP"; exit 1; }
+          file "$APP/MCLA" | grep -q arm64 || { echo "executable is not arm64"; exit 1; }
+          nm "$APP/MCLA" | grep -q mcla_probe_run || nm -gU "$APP/MCLA" | head
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry MCLA-unsigned.ipa Payload
+          ls -l MCLA-unsigned.ipa "$APP/MCLA"
+          file "Payload/MCLA.app/MCLA"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MCLA-probe-ipa
+          path: ios/MCLA-unsigned.ipa
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ios-app-logs
+          path: |
+            probe-configure.log
+            probe-build.log
+            ios/xcodebuild.log
+          if-no-files-found: ignore

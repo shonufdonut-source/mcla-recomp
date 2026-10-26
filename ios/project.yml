@@ -16,8 +16,20 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+    dependencies:
+      # MoltenVK and the SDK (built by CMake into probe-lib/, see ios/probe/).
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
+      - sdk: IOSurface.framework
+      - sdk: CoreGraphics.framework
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
     settings:
       base:
+        SWIFT_OBJC_BRIDGING_HEADER: probe/mcla_probe.h
+        LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/probe-lib
+        OTHER_LDFLAGS: -lmcla_probe_all -lc++
+        DEAD_CODE_STRIPPING: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.shonufdonut.mcla
         INFOPLIST_FILE: Info.plist
         GENERATE_INFOPLIST_FILE: NO
