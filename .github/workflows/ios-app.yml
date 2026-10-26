@@ -7,13 +7,19 @@ name: iOS app IPA
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: macOS runner (macos-15-intel when arm64 runners are short)
+        default: macos-15
   push:
     branches: [ios-port]
     paths: ["ios/**", "patches/**", ".github/workflows/ios-app.yml"]
 
 jobs:
   build:
-    runs-on: macos-15
+    # A manual run can pick the runner: when GitHub has no arm64 macOS capacity (as on
+    # 2026-10-26), macos-15-intel builds the same arm64 app, more slowly.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'macos-15' }}
     steps:
       - uses: actions/checkout@v4
 
