@@ -13,6 +13,10 @@ add_subdirectory(${REXGLUE_SDK_DIR} rexglue EXCLUDE_FROM_ALL)
 add_library(mcla_probe STATIC mcla_probe.cpp)
 target_link_libraries(mcla_probe PRIVATE rex::core MoltenVK::MoltenVK Vulkan::Headers)
 
+# A static library does not make CMake build its dependencies; an executable does.
+add_executable(mcla_probe_linkcheck linkcheck.cpp)
+target_link_libraries(mcla_probe_linkcheck PRIVATE mcla_probe)
+
 # Xcode links one archive: the probe plus every static library it depends on.
 # The linker only pulls the objects that are actually referenced.
 add_custom_target(mcla_probe_all ALL
@@ -20,5 +24,5 @@ add_custom_target(mcla_probe_all ALL
         -DOUT=${CMAKE_BINARY_DIR}/libmcla_probe_all.a
         -DSEARCH_DIRS=${CMAKE_BINARY_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/merge_archives.cmake
-    DEPENDS mcla_probe
+    DEPENDS mcla_probe mcla_probe_linkcheck
     VERBATIM)
