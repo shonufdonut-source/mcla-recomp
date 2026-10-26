@@ -15,13 +15,17 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 raw="https://raw.githubusercontent.com/xenia-project/xenia/$XENIA_COMMIT/src/xenia"
+# Xenia's headers include each other by relative path (gpu/shaders -> ../../ui/shaders), so
+# they keep xenia's layout; the MCLA shaders sit next to the GPU ones.
+mkdir -p "$WORK/ui/shaders" "$WORK/gpu/shaders"
 for f in ui/shaders/xesl.xesli gpu/shaders/endian.xesli gpu/shaders/pixel_formats.xesli \
          gpu/shaders/texture_address.xesli gpu/shaders/texture_load.xesli; do
-  curl -fsSL "$raw/$f" -o "$WORK/$(basename "$f")"
+  curl -fsSL "$raw/$f" -o "$WORK/$f"
 done
-cp "$HERE"/*.xesl "$HERE"/*.xesli "$WORK/"
+cp "$HERE"/*.xesl "$HERE"/*.xesli "$WORK/gpu/shaders/"
 
-cd "$WORK"
+cd "$WORK/gpu/shaders"
+WORK="$PWD"
 for src in *.cs.xesl; do
   id="${src%.xesl}"
   id="${id//./_}"
