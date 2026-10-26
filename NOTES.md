@@ -144,3 +144,34 @@ Nothing is built until you choose.
 | Raster order groups | true | Makes VK_EXT_fragment_shader_interlock plausible through MoltenVK; verify in the MoltenVK feature report. |
 | 32-bit float filtering | false | Linear filtering of RGBA32F textures is unavailable; emulate or accept nearest. |
 | GPU family | apple5 (not apple6) | No apple6+ features. |
+
+## 10. MoltenVK and SDK on the A12X iPad (M1b probe, on device, 2026-10-25)
+
+MoltenVK 1.4 (instance API 1.4.357, device API 1.3), 124 device extensions, `vkCreateDevice` with every reported
+feature: **OK**.
+
+| Item | Measured | Consequence |
+|---|---|---|
+| vertexPipelineStoresAndAtomics, fragmentStoresAndAtomics | yes | Renderer's hard requirements met. |
+| fragmentShaderSampleInterlock / PixelInterlock | yes / yes | The interlock (ROV-style) EDRAM path is available. |
+| geometryShader | NO | Use the SDK's macOS fallback (`vulkan_require_geometry_shader` off). |
+| tessellationShader, fillModeNonSolid, dynamicRendering, extendedDynamicState | yes | |
+| customBorderColors | NO | Border colours limited to the fixed Vulkan set; check the renderer's fallback. |
+| shaderCullDistance, logicOp, wideLines, shaderFloat64 | NO | Minor; check renderer use. |
+| portability: samplerMipLodBias | **NO** | Xenos LOD bias must be applied in shaders. |
+| portability: pointPolygons, tessellationIsolines | NO | Minor. |
+| Per-stage limits | samplers 16, sampled images 96, storage buffers 31, resources 127 | **16 samplers per stage** must fit the renderer's layout (Xenos has up to 32 fetch constants). |
+| BC1/2/3/5 | unsupported | Decode at upload (or transcode to ASTC/ETC2: sample+linear OK). |
+| D24_UNORM_S8_UINT | unsupported | Use D32_SFLOAT_S8_UINT (supported) with 24-bit depth emulation. |
+| R32G32B32A32_SFLOAT | sample yes, linear NO | Matches the Metal report. |
+| Memory heap | 3786 MB, one device-local heap | Unified memory. |
+
+SDK on device:
+
+| Item | Measured | Consequence |
+|---|---|---|
+| AllocFixed / Protect / QueryProtect | OK (page size 16 KB) | iOS patch 03 (`vm_region_64`) works. |
+| `shm_open` | **EPERM** | SDK's file mapping fails on iOS; patch 04 uses an unlinked temp file. |
+| 4.5 GB contiguous reservation + 9 guest views + aliasing | **OK** (temp-file backing) | Guest memory layout works with a free Apple ID; no extended-VA entitlement needed. Touching 256 MB did not lower `os_proc_available_memory` (file-backed). |
+| SDK fault handler | OK (write, exact address, retry correct) | Guest MMIO trapping works. |
+| SDK fibers (ucontext) | `ConvertCurrentThread` fails | Only used by the `rexcrt_CreateFiber` hook; MCLA's generated code, config and source reference no `rexcrt_` hook, so deferred. Needs an ARM64 context switch if a title uses it. |

@@ -317,45 +317,21 @@ void TestGuestArena(const char* temp_dir) {
   const size_t gran = rex::memory::allocation_granularity();
   const size_t mapping_size = ((0x120000000ull + gran) + gran - 1) / gran * gran;
 
-  // The SDK's own call first (shm_open + ftruncate).
-  const char* shm_name = "/mcla_probe_arena";
-  shm_unlink(shm_name);
-  int fd = shm_open(shm_name, O_RDWR | O_CREAT, 0600);
-  bool shm = fd >= 0;
-  if (!shm) {
-    P("  shm_open FAILED: errno %d (%s)", errno, std::strerror(errno));
-  } else if (ftruncate(fd, off_t(mapping_size)) != 0) {
-    P("  shm_open OK, ftruncate %.2f GB FAILED: errno %d (%s)", mapping_size / 1073741824.0,
-      errno, std::strerror(errno));
-    close(fd);
-    shm_unlink(shm_name);
-    fd = -1;
-    shm = false;
-  } else {
-    P("  shm_open + ftruncate %.2f GB OK (the SDK's path works as is)",
-      mapping_size / 1073741824.0);
+  (void)temp_dir;
+  // iOS denies shm_open (EPERM, seen on device); SDK patch 04 backs the mapping with an
+  // unlinked temp file instead. This uses the SDK's own call, as Memory::Initialize does.
+  const char* name = "mcla_probe_arena";
+  auto handle = rex::memory::CreateFileMappingHandle(name, mapping_size,
+                                                     rex::memory::PageAccess::kReadWrite, false);
+  if (handle == rex::memory::kFileMappingHandleInvalid) {
+    P("  rex::memory::CreateFileMappingHandle %.2f GB FAILED: errno %d (%s)",
+      mapping_size / 1073741824.0, errno, std::strerror(errno));
+    return;
   }
-  auto sdk_handle = rex::memory::CreateFileMappingHandle("mcla_probe_sdk", mapping_size,
-                                                         rex::memory::PageAccess::kReadWrite,
-                                                         false);
-  P("  rex::memory::CreateFileMappingHandle: %s",
-    sdk_handle != rex::memory::kFileMappingHandleInvalid ? "OK" : "FAILED");
-  if (sdk_handle != rex::memory::kFileMappingHandleInvalid) {
-    rex::memory::CloseFileMappingHandle(sdk_handle, "mcla_probe_sdk");
-  }
-
-  if (fd < 0) {
-    // Fallback the port could use: an unlinked sparse file in the app's temp directory.
-    std::string path = std::string(temp_dir) + "/mcla_probe_arena.bin";
-    fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
-    if (fd >= 0) unlink(path.c_str());
-    if (fd < 0 || ftruncate(fd, off_t(mapping_size)) != 0) {
-      P("  fallback temp file FAILED: errno %d (%s)", errno, std::strerror(errno));
-      if (fd >= 0) close(fd);
-      return;
-    }
-    P("  fallback: unlinked sparse temp file of %.2f GB OK", mapping_size / 1073741824.0);
-  }
+  P("  rex::memory::CreateFileMappingHandle %.2f GB OK (patch 04, temp file)",
+    mapping_size / 1073741824.0);
+  const int fd = int(handle);
+  auto close_mapping = [&] { rex::memory::CloseFileMappingHandle(handle, name); };
 
   const size_t total = size_t(kViews[8].end - kViews[0].start + 1);
   void* base = mmap(nullptr, total, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
@@ -371,8 +347,7 @@ void TestGuestArena(const char* temp_dir) {
         break;
       }
     }
-    close(fd);
-    if (shm) shm_unlink(shm_name);
+    close_mapping();
     return;
   }
   P("  reserve %.2f GB contiguous address space OK at 0x%" PRIxPTR, total / 1073741824.0,
@@ -408,8 +383,7 @@ void TestGuestArena(const char* temp_dir) {
       MB(os_proc_available_memory()));
   }
   munmap(base, total);
-  close(fd);
-  if (shm) shm_unlink(shm_name);
+  close_mapping();
   P("  available after release: %.0f MB", MB(os_proc_available_memory()));
 }
 
@@ -478,10 +452,10 @@ void FiberEntry(void* arg) {
 }
 
 void TestFibers() {
-  P("[5/5] SDK fibers (ucontext; if the app closes here, fibers need an ARM64 replacement)");
+  P("[5/5] SDK fibers (ucontext; only reached via the rexcrt_CreateFiber hook, unused by MCLA)");
   g_main_fiber = rex::thread::Fiber::ConvertCurrentThread();
   if (!g_main_fiber) {
-    P("  ConvertCurrentThread FAILED");
+    P("  ConvertCurrentThread FAILED (getcontext unsupported on iOS; known, deferred)");
     return;
   }
   double step = 0.25;

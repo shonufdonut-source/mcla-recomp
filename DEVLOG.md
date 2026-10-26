@@ -82,4 +82,17 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   limits and device creation; SDK page allocation; the SDK's 4.5 GB shm-backed guest arena; the SDK fault
   handler; SDK fibers.
 - Log keeps the previous run (`mcla-previous.log`) so a crash during the probe is not lost.
+
+## 2026-10-25: M1b probe on the iPad
+
+- [device] Probe ran to completion, no crash (iPad8,1, iPadOS 26.7.1, free Apple ID). Full table in NOTES.md s.10.
+- [device] MoltenVK: device creation OK; required store/atomic features and fragment shader interlock present;
+  no geometry shader, no BC, no D24S8, no samplerMipLodBias, no custom border colour; 16 samplers per stage.
+- [device] SDK page allocation and patch 03 OK. `shm_open` EPERM. A 4.5 GB reservation with all 9 guest views and
+  correct aliasing works on a temp-file backing. SDK fault handler works. SDK fibers fail (ucontext).
+- Patch 04: SDK `CreateFileMappingHandle` uses an unlinked temp file on iOS; the probe now maps the guest views
+  through that SDK call. **Not yet re-run on device.**
+- Fibers deferred: only reachable through the `rexcrt_CreateFiber` hook, which MCLA's generated code does not
+  reference (local read-only search of `generated/`, nothing copied).
+- Noted: the Documents folder no longer had `default.xex` after this install (1 file, 0 MB). Not investigated.
 - Not yet: the iOS surface (SDL/CAMetalLayer), calling MoltenVK directly, running on device.
