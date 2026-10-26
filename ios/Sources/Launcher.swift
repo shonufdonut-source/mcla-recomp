@@ -54,7 +54,22 @@ enum LaunchSettings {
 
     static let choices = [frameRate, resolution, intro]
 
-    static let toggles = [
+    /// iOS ends the app when it nears the per-app memory budget (about 2.8 GB on a 4 GB iPad).
+    /// The SDK's texture cache alone may grow to 768 MB, and this GPU stores the game's
+    /// compressed textures uncompressed, so the saver caps the cache and frees unused textures
+    /// sooner.
+    static let memorySaver = LaunchToggle(
+        key: "memorySaver", title: "Memory saver",
+        detail: "Recommended on 4 GB iPads: smaller texture cache, unused textures freed sooner",
+        cvar: "", defaultValue: true)
+    private static let memorySaverValues = [
+        ("texture_cache_memory_limit_soft", "160"),
+        ("texture_cache_memory_limit_hard", "320"),
+        ("texture_cache_memory_limit_soft_lifetime", "10"),
+        ("texture_cache_memory_limit_render_to_texture", "16"),
+    ]
+
+    static let toggles: [LaunchToggle] = [
         LaunchToggle(key: "vsync", title: "V-sync", detail: "Off can tear but reacts sooner",
                      cvar: "vsync", defaultValue: true),
         LaunchToggle(key: "showIncomplete", title: "Keep showing frames while shaders build",
@@ -66,8 +81,9 @@ enum LaunchSettings {
                      cvar: "mcla_motion_blur", defaultValue: true),
         LaunchToggle(key: "dof", title: "Depth of field", detail: "",
                      cvar: "mcla_depth_of_field", defaultValue: true),
-        LaunchToggle(key: "msaa", title: "Anti-aliasing (MSAA)", detail: "",
-                     cvar: "mcla_msaa", defaultValue: true),
+        LaunchToggle(key: "msaa2", title: "Anti-aliasing (MSAA)",
+                     detail: "Its render targets take a lot of memory; off is safer on a 4 GB iPad",
+                     cvar: "mcla_msaa", defaultValue: false),
         LaunchToggle(key: "blur", title: "Full-screen blur", detail: "",
                      cvar: "mcla_fullscreen_blur", defaultValue: true),
     ]
@@ -75,6 +91,9 @@ enum LaunchSettings {
     static func applyToGame() {
         for choice in choices { mcla_game_set_option(choice.cvar, choice.value) }
         for toggle in toggles { mcla_game_set_option(toggle.cvar, toggle.cvarValue) }
+        if memorySaver.isOn {
+            for (cvar, value) in memorySaverValues { mcla_game_set_option(cvar, value) }
+        }
     }
 
     static var summary: String {
@@ -472,20 +491,32 @@ final class GraphicsSettingsViewController: UITableViewController {
         title = "Graphics"
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int { LaunchSettings.choices.count + 1 }
+    // Sections: one per choice, then Memory, then Effects.
+    private var memorySection: Int { LaunchSettings.choices.count }
+    private var effectsSection: Int { LaunchSettings.choices.count + 1 }
+
+    private func toggle(at indexPath: IndexPath) -> LaunchToggle {
+        indexPath.section == memorySection ? LaunchSettings.memorySaver : LaunchSettings.toggles[indexPath.row]
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int { LaunchSettings.choices.count + 2 }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section < LaunchSettings.choices.count ? 1 : LaunchSettings.toggles.count
+        if section < LaunchSettings.choices.count || section == memorySection { return 1 }
+        return LaunchSettings.toggles.count
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        section < LaunchSettings.choices.count ? LaunchSettings.choices[section].title : "Effects"
+        if section < LaunchSettings.choices.count { return LaunchSettings.choices[section].title }
+        return section == memorySection ? "Memory" : "Effects"
     }
 
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        section < LaunchSettings.choices.count
-            ? LaunchSettings.choices[section].detail
-            : "Applied the next time you press Play. Turning effects off makes the game smoother on this iPad."
+        if section < LaunchSettings.choices.count { return LaunchSettings.choices[section].detail }
+        if section == memorySection {
+            return "iOS closes the game if it uses too much memory (about 2.8 GB on this iPad)."
+        }
+        return "Applied the next time you press Play. Turning effects off makes the game smoother on this iPad."
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -508,7 +539,7 @@ final class GraphicsSettingsViewController: UITableViewController {
                 control.heightAnchor.constraint(equalToConstant: 36),
             ])
         } else {
-            let toggle = LaunchSettings.toggles[indexPath.row]
+            let toggle = toggle(at: indexPath)
             var content = cell.defaultContentConfiguration()
             content.text = toggle.title
             content.secondaryText = toggle.detail.isEmpty ? nil : toggle.detail
@@ -517,7 +548,7 @@ final class GraphicsSettingsViewController: UITableViewController {
             let toggleSwitch = UISwitch()
             toggleSwitch.isOn = toggle.isOn
             toggleSwitch.onTintColor = Theme.accent
-            toggleSwitch.tag = indexPath.row
+            toggleSwitch.tag = indexPath.section == memorySection ? -1 : indexPath.row
             toggleSwitch.addTarget(self, action: #selector(toggleChanged(_:)), for: .valueChanged)
             cell.accessoryView = toggleSwitch
         }
@@ -530,7 +561,8 @@ final class GraphicsSettingsViewController: UITableViewController {
     }
 
     @objc private func toggleChanged(_ sender: UISwitch) {
-        LaunchSettings.toggles[sender.tag].isOn = sender.isOn
+        let toggle = sender.tag < 0 ? LaunchSettings.memorySaver : LaunchSettings.toggles[sender.tag]
+        toggle.isOn = sender.isOn
     }
 }
 
