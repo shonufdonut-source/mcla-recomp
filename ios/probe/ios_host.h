@@ -110,12 +110,16 @@ class IOSWindow final : public rex::ui::Window {
     if (paint_pending_.exchange(true)) return;
     app_context().CallInUIThreadDeferred([this] {
       paint_pending_ = false;
+      // Off screen iOS refuses GPU work and loses the device, so no presenting then.
+      if (paused_) return;
       OnPaint();
       ++paints_;
     });
   }
 
  public:
+  void SetPaused(bool paused) { paused_ = paused; }
+
   // Presenter paints so far: each one shows the newest guest frame, so paints per second is
   // the frame rate on screen.
   uint64_t paints() const { return paints_.load(); }
@@ -125,6 +129,7 @@ class IOSWindow final : public rex::ui::Window {
   const void* layer_;
   uint32_t width_, height_;
   std::atomic<bool> paint_pending_{false};
+  std::atomic<bool> paused_{false};
 };
 
 }  // namespace mcla_ios

@@ -44,6 +44,9 @@ int mcla_game_start(const void* metal_layer, unsigned width_px, unsigned height_
 void mcla_game_set_option(const char* name, const char* value);
 void mcla_game_tick(void);
 void mcla_game_resize(unsigned width_px, unsigned height_px);
+// Off screen iOS refuses GPU work: pause (1) when the app leaves the screen, resume (0) when it
+// is back. Waits for the GPU command processor, so call it off the main thread.
+void mcla_game_set_paused(int paused);
 
 #ifdef __cplusplus
 }

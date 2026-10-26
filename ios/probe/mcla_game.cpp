@@ -32,6 +32,7 @@ extern "C" void mcla_game_set_option(const char* name, const char* value) {
 #if MCLA_HAS_GAME
 
 #include <rex/cvar.h>
+#include <rex/graphics/graphics_system.h>
 #include <rex/image_info.h>
 #include <rex/input/device_assignment.h>
 #include <rex/input/input_system.h>
@@ -50,12 +51,23 @@ extern "C" void mcla_game_set_option(const char* name, const char* value) {
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL_main.h>
 
+#include <dlfcn.h>
 #include <mach/mach.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
 #include <os/proc.h>
+#include <pthread.h>
 
+#include <atomic>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
+#include <mutex>
 #include <string>
+#include <thread>
+
+// Metal's C entry point; the device it returns is the one MoltenVK renders with.
+extern "C" void* MTLCreateSystemDefaultDevice(void);
 
 // generated/default/mcla_init.cpp
 extern const rex::PPCImageInfo PPCImageConfig;
@@ -90,6 +102,14 @@ struct GameState {
   int last_alive_second = 0;
   std::filesystem::path cache_root;
   uint64_t paints_at_last_report = 0;
+  std::chrono::steady_clock::time_point last_report_at;
+  // The main thread, for the freeze watchdog: its last display tick and where its stack lies.
+  mach_port_t main_mach_thread = MACH_PORT_NULL;
+  uintptr_t main_stack_low = 0, main_stack_high = 0;
+  std::atomic<int64_t> last_tick_ms{0};
+  // Off screen (app in the background): graphics stopped, display ticks not expected.
+  std::atomic<bool> paused{false};
+  std::mutex pause_mutex;
 };
 
 GameState* g_game = nullptr;
@@ -113,14 +133,115 @@ void ListGuestThreads() {
 
 // This process's memory as iOS counts it (phys_footprint, what jetsam kills on) and what iOS
 // still grants; when the app vanishes without a crash line, these show if memory was the cause.
+// GPU allocations is Metal's own count for this process (textures, buffers, render targets);
+// the rest of "used" is CPU-side (guest memory, decoded data, code).
+uint64_t GpuAllocatedBytes() {
+  static void* device = MTLCreateSystemDefaultDevice();
+  if (!device) return 0;
+  return reinterpret_cast<uint64_t (*)(void*, SEL)>(objc_msgSend)(
+      device, sel_registerName("currentAllocatedSize"));
+}
+
 void LogMemory() {
   task_vm_info_data_t info{};
   mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
   const bool ok = task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info),
                             &count) == KERN_SUCCESS;
-  P("memory: %llu MB used, %llu MB still available to the app",
+  P("memory: %llu MB used (GPU allocations %llu MB), %llu MB still available to the app",
     ok ? static_cast<unsigned long long>(info.phys_footprint >> 20) : 0ull,
+    static_cast<unsigned long long>(GpuAllocatedBytes() >> 20),
     static_cast<unsigned long long>(os_proc_available_memory() >> 20));
+}
+
+int64_t NowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+// Where the main thread is while it does not respond: it is stopped for a moment, its return
+// addresses are read from its frame chain, and it continues. Nothing is allocated or locked
+// while it is stopped (it may hold the malloc or log lock); the names are looked up after.
+void LogMainThreadStack() {
+  const mach_port_t thread = g_game->main_mach_thread;
+  if (thread == MACH_PORT_NULL) return;
+  constexpr int kMaxFrames = 24;
+  uintptr_t pcs[kMaxFrames];
+  int frames = 0;
+  // Return addresses of system code can carry a pointer signature in the top bits.
+  auto strip = [](uint64_t address) { return static_cast<uintptr_t>(address & 0x0000000FFFFFFFFFull); };
+  if (thread_suspend(thread) != KERN_SUCCESS) return;
+  arm_thread_state64_t state{};
+  mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+  if (thread_get_state(thread, ARM_THREAD_STATE64, reinterpret_cast<thread_state_t>(&state),
+                       &count) == KERN_SUCCESS) {
+    pcs[frames++] = strip(arm_thread_state64_get_pc(state));
+    pcs[frames++] = strip(arm_thread_state64_get_lr(state));
+    uintptr_t fp = strip(arm_thread_state64_get_fp(state));
+    while (frames < kMaxFrames && fp >= g_game->main_stack_low &&
+           fp + 2 * sizeof(uintptr_t) <= g_game->main_stack_high && (fp & 7) == 0) {
+      const auto* frame = reinterpret_cast<const uintptr_t*>(fp);
+      const uintptr_t next = frame[0];
+      const uintptr_t ret = strip(frame[1]);
+      if (ret == 0) break;
+      pcs[frames++] = ret;
+      if (next <= fp) break;
+      fp = next;
+    }
+  }
+  thread_resume(thread);
+  for (int i = 0; i < frames; ++i) {
+    Dl_info info{};
+    if (dladdr(reinterpret_cast<void*>(pcs[i]), &info) && info.dli_fname) {
+      const char* image = std::strrchr(info.dli_fname, '/');
+      image = image ? image + 1 : info.dli_fname;
+      const auto offset = static_cast<unsigned long long>(
+          pcs[i] - reinterpret_cast<uintptr_t>(info.dli_fbase));
+      if (info.dli_sname) {
+        P("  main %2d: %s+0x%llx %s+%llu", i, image, offset, info.dli_sname,
+          static_cast<unsigned long long>(pcs[i] - reinterpret_cast<uintptr_t>(info.dli_saddr)));
+      } else {
+        P("  main %2d: %s+0x%llx", i, image, offset);
+      }
+    } else {
+      P("  main %2d: 0x%llx", i, static_cast<unsigned long long>(pcs[i]));
+    }
+  }
+}
+
+// The main thread presents frames and runs the display tick. When its ticks stop for 2 s while
+// the app is on screen, this says so (again at 10 s, then every 30 s) with its stack and memory,
+// and how long the freeze lasted once it responds again.
+void WatchMainThread() {
+  bool frozen = false;
+  int64_t frozen_from_ms = 0;
+  int64_t next_report_s = 2;
+  for (;;) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    const int64_t last = g_game->last_tick_ms.load();
+    if (last == 0 || g_game->paused.load()) {
+      frozen = false;
+      continue;
+    }
+    const int64_t stale_ms = NowMs() - last;
+    if (stale_ms >= 2000) {
+      if (!frozen) {
+        frozen = true;
+        frozen_from_ms = last;
+        next_report_s = 2;
+      }
+      if (stale_ms / 1000 >= next_report_s) {
+        P("main thread not responding for %lld s; its stack:", static_cast<long long>(stale_ms / 1000));
+        LogMainThreadStack();
+        LogMemory();
+        next_report_s = next_report_s < 10 ? 10 : next_report_s + 30;
+      }
+    } else if (frozen) {
+      frozen = false;
+      P("main thread responding again after a %.1f s freeze",
+        static_cast<double>(last - frozen_from_ms) / 1000.0);
+    }
+  }
 }
 
 // What the shader storage holds: if a second run lists the same files and still creates as many
@@ -313,8 +434,15 @@ extern "C" int mcla_game_start(const void* metal_layer, unsigned width_px, unsig
   NEXT("resume the main guest thread; guest code runs from here");
   g_game->main_thread->Resume();
   g_game->resumed_at = std::chrono::steady_clock::now();
+  g_game->last_report_at = g_game->resumed_at;
   P("PASS main guest thread resumed%s", stage >= 5 ? " (with graphics)" : " (no graphics: the "
     "game is expected to stop at its video setup)");
+  // mcla_game_start runs on the main thread.
+  g_game->main_mach_thread = mach_thread_self();
+  const pthread_t main_pthread = pthread_self();
+  g_game->main_stack_high = reinterpret_cast<uintptr_t>(pthread_get_stackaddr_np(main_pthread));
+  g_game->main_stack_low = g_game->main_stack_high - pthread_get_stacksize_np(main_pthread);
+  std::thread(WatchMainThread).detach();
   return 0;
 }
 
@@ -322,17 +450,23 @@ extern "C" void mcla_game_tick(void) {
   if (!g_game || !g_game->main_thread || g_game->resumed_at.time_since_epoch().count() == 0) {
     return;
   }
-  const int second = static_cast<int>(std::chrono::duration_cast<std::chrono::seconds>(
-                                          std::chrono::steady_clock::now() - g_game->resumed_at)
-                                          .count());
+  g_game->last_tick_ms = NowMs();
+  const auto now = std::chrono::steady_clock::now();
+  const int second = static_cast<int>(
+      std::chrono::duration_cast<std::chrono::seconds>(now - g_game->resumed_at).count());
   if (second <= g_game->last_alive_second) return;
   g_game->last_alive_second = second;
   if (second <= 30 || second % 30 == 0) P("alive: %d s", second);
   if (g_game->window && second % 5 == 0) {
+    // Over the real time since the last report: after a freeze that is longer than 5 s.
     const uint64_t paints = g_game->window->paints();
-    P("display: %.1f fps over the last 5 s (presenter paints)",
-      static_cast<double>(paints - g_game->paints_at_last_report) / 5.0);
+    const double seconds =
+        std::chrono::duration<double>(now - g_game->last_report_at).count();
+    P("display: %.1f fps over the last %.0f s (presenter paints)",
+      seconds > 0 ? static_cast<double>(paints - g_game->paints_at_last_report) / seconds : 0.0,
+      seconds);
     g_game->paints_at_last_report = paints;
+    g_game->last_report_at = now;
     LogMemory();
   }
   if (g_game->window && (second == 60 || second == 300)) ListCache("now");
@@ -342,6 +476,29 @@ extern "C" void mcla_game_tick(void) {
 
 extern "C" void mcla_game_resize(unsigned width_px, unsigned height_px) {
   if (g_game && g_game->window) g_game->window->Resize(width_px, height_px);
+}
+
+extern "C" void mcla_game_set_paused(int paused) {
+  if (!g_game || !g_game->runtime || g_game->resumed_at.time_since_epoch().count() == 0) return;
+  std::lock_guard<std::mutex> lock(g_game->pause_mutex);
+  if (g_game->paused.load() == (paused != 0)) return;
+  // The Xenos plugin's system (rex_gpu_create) is a GraphicsSystem.
+  auto* graphics = static_cast<rex::graphics::GraphicsSystem*>(g_game->runtime->graphics_system());
+  const int64_t start = NowMs();
+  if (paused) {
+    g_game->paused = true;
+    if (g_game->window) g_game->window->SetPaused(true);
+    // Waits for the command processor to finish the command it is on.
+    if (graphics) graphics->Pause();
+    P("paused: the app left the screen; graphics stopped after %lld ms",
+      static_cast<long long>(NowMs() - start));
+  } else {
+    if (graphics) graphics->Resume();
+    if (g_game->window) g_game->window->SetPaused(false);
+    g_game->last_tick_ms = NowMs();
+    g_game->paused = false;
+    P("resumed: the app is back on screen");
+  }
 }
 
 #else  // !MCLA_HAS_GAME
@@ -359,5 +516,7 @@ extern "C" int mcla_game_start(const void*, unsigned, unsigned, const char*, con
 extern "C" void mcla_game_tick(void) {}
 
 extern "C" void mcla_game_resize(unsigned, unsigned) {}
+
+extern "C" void mcla_game_set_paused(int) {}
 
 #endif  // MCLA_HAS_GAME

@@ -42,6 +42,8 @@ final class GameViewController: UIViewController {
     private let stage: Int32
     private var displayLink: CADisplayLink?
     private var started = false
+    /// Pausing waits for the GPU command processor, so it runs here, in order, off the main thread.
+    private let lifecycleQueue = DispatchQueue(label: "mcla.game.lifecycle")
 
     init(stage: Int32) {
         self.stage = stage
@@ -94,9 +96,33 @@ final class GameViewController: UIViewController {
         thermalChanged()
         NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning),
                                                name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(willResignActive),
+                                               name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive),
+                                               name: UIApplication.didBecomeActiveNotification, object: nil)
     }
 
     @objc private func tick() { mcla_game_tick() }
+
+    /// iOS refuses GPU work from an app that is off screen and the game loses its GPU device,
+    /// so graphics stop before the app goes; the background task asks iOS for time to finish.
+    @objc private func willResignActive() {
+        var task = UIBackgroundTaskIdentifier.invalid
+        let finish = {
+            guard task != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(task)
+            task = .invalid
+        }
+        task = UIApplication.shared.beginBackgroundTask(withName: "Pause the game") { finish() }
+        lifecycleQueue.async {
+            mcla_game_set_paused(1)
+            DispatchQueue.main.async { finish() }
+        }
+    }
+
+    @objc private func didBecomeActive() {
+        lifecycleQueue.async { mcla_game_set_paused(0) }
+    }
 
     @objc private func memoryWarning() {
         log("iOS memory warning: the app is close to its memory limit")
