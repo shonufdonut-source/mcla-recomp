@@ -1,5 +1,6 @@
 import Foundation
 import Metal
+import MetalFX
 import UIKit
 import os
 
@@ -35,6 +36,7 @@ enum SystemReport {
         }
         log("32-bit float filtering: \(device.supports32BitFloatFiltering)")
         log("raster order groups: \(device.areRasterOrderGroupsSupported)")
+        log("MetalFX spatial upscaling: \(MTLFXSpatialScalerDescriptor.supportsDevice(device)), temporal: \(MTLFXTemporalScalerDescriptor.supportsDevice(device))")
     }
 
     private static func machine() -> String {

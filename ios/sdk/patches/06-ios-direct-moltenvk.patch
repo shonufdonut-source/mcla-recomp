@@ -1,0 +1,83 @@
+diff --git a/include/rex/platform.h b/include/rex/platform.h
+index 5f0afef..b48ea78 100644
+--- a/include/rex/platform.h
++++ b/include/rex/platform.h
+@@ -30,6 +30,10 @@
+ 
+ #if defined(TARGET_OS_MAC) && TARGET_OS_MAC
+ #define REX_PLATFORM_MAC 1
++// iOS/iPadOS is a Mac-family target with its own restrictions (no loader, no shm).
++#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
++#define REX_PLATFORM_IOS 1
++#endif
+ #elif defined(WIN32) || defined(_WIN32)
+ #define REX_PLATFORM_WIN32 1
+ #elif defined(__ANDROID__)
+@@ -53,6 +57,9 @@
+ #ifndef REX_PLATFORM_MAC
+ #define REX_PLATFORM_MAC 0
+ #endif
++#ifndef REX_PLATFORM_IOS
++#define REX_PLATFORM_IOS 0
++#endif
+ #ifndef REX_PLATFORM_WIN32
+ #define REX_PLATFORM_WIN32 0
+ #endif
+diff --git a/src/ui/vulkan/vulkan_instance.cpp b/src/ui/vulkan/vulkan_instance.cpp
+index cfa4e0e..f1693c0 100644
+--- a/src/ui/vulkan/vulkan_instance.cpp
++++ b/src/ui/vulkan/vulkan_instance.cpp
+@@ -36,6 +36,13 @@ extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(Vk
+     __attribute__((weak));
+ #endif
+ 
++#if REX_PLATFORM_IOS
++// MoltenVK is linked statically into the iOS app: iOS cannot load a Vulkan loader or ICD,
++// so its exported entry point is used directly, like the PS5 driver above.
++extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vkGetInstanceProcAddr(VkInstance instance,
++                                                                          const char* name);
++#endif
++
+ namespace rex {
+ namespace ui {
+ namespace vulkan {
+@@ -54,7 +61,7 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+ 
+   bool functions_loaded = true;
+   bool loader_loaded = false;
+-#if REX_PLATFORM_MAC
++#if REX_PLATFORM_MAC && !REX_PLATFORM_IOS
+   const MacOSVulkanRuntimePaths macos_runtime_paths = DetectMacOSVulkanRuntimePaths();
+   ConfigureMacOSVulkanEnvironment(macos_runtime_paths);
+ 
+@@ -83,6 +90,12 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+     }
+     return nullptr;
+   }
++#elif REX_PLATFORM_IOS
++  loader_loaded = true;
++  ifn.vkGetInstanceProcAddr = &::vkGetInstanceProcAddr;
++  // Fetched again once an instance exists if the global query returns nothing.
++  ifn.vkDestroyInstance =
++      PFN_vkDestroyInstance(ifn.vkGetInstanceProcAddr(nullptr, "vkDestroyInstance"));
+ #elif REX_PLATFORM_PS5
+   // No loader library and no way to open one: the driver is linked into the
+   // executable (an installed title cannot load a graphics module at run
+@@ -106,7 +119,7 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+   }
+ #endif
+ 
+-#if !REX_PLATFORM_PS5
++#if !REX_PLATFORM_PS5 && !REX_PLATFORM_IOS
+ #define XE_VULKAN_LOAD_LOADER_FUNCTION(name) \
+   functions_loaded &= (ifn.name = vulkan_instance->loader_.GetSymbol<PFN_##name>(#name)) != nullptr;
+   XE_VULKAN_LOAD_LOADER_FUNCTION(vkGetInstanceProcAddr);
+@@ -415,7 +428,7 @@ std::unique_ptr<VulkanInstance> VulkanInstance::Create(const bool with_surface,
+     return nullptr;
+   }
+ 
+-#if REX_PLATFORM_PS5
++#if REX_PLATFORM_PS5 || REX_PLATFORM_IOS
+   if (!ifn.vkDestroyInstance) {
+     ifn.vkDestroyInstance = PFN_vkDestroyInstance(
+         ifn.vkGetInstanceProcAddr(vulkan_instance->instance_, "vkDestroyInstance"));

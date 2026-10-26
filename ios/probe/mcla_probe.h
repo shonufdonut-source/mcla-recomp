@@ -15,6 +15,16 @@ typedef void (*mcla_log_fn)(const char* line);
 // `temp_dir` is a writable directory (NSTemporaryDirectory) for the file-backed fallback.
 void mcla_probe_run(const char* temp_dir, mcla_log_fn log);
 
+// Graphics test, all on the main thread. Brings up the SDK's Vulkan provider (MoltenVK called
+// directly), an iOS window around `metal_layer` (a CAMetalLayer) and the SDK presenter, which
+// paints a moving coloured bar through the SDK's immediate drawer. Returns 0 on success.
+int mcla_gfx_start(const void* metal_layer, unsigned width_px, unsigned height_px,
+                   mcla_log_fn log);
+// Call once per display refresh: requests the next paint and logs the frame rate now and then.
+void mcla_gfx_tick(void);
+// Call when the layer's drawable size changes.
+void mcla_gfx_resize(unsigned width_px, unsigned height_px);
+
 #ifdef __cplusplus
 }
 #endif

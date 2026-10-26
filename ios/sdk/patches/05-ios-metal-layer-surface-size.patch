@@ -1,0 +1,34 @@
+diff --git a/src/ui/surface_mac.cpp b/src/ui/surface_mac.cpp
+index ef56dc9..052aa66 100644
+--- a/src/ui/surface_mac.cpp
++++ b/src/ui/surface_mac.cpp
+@@ -14,6 +14,10 @@
+ #include <SDL3/SDL_metal.h>
+ #include <SDL3/SDL_video.h>
+ 
++#include <CoreGraphics/CGGeometry.h>
++#include <objc/message.h>
++#include <objc/runtime.h>
++
+ namespace rex {
+ namespace ui {
+ 
+@@ -25,6 +29,18 @@ CAMetalLayerSurface::~CAMetalLayerSurface() {
+ }
+ 
+ bool CAMetalLayerSurface::GetSizeImpl(uint32_t& width_out, uint32_t& height_out) const {
++  if (!window_) {
++    // Host-provided layer with no SDL window (the iOS app): the layer's drawable size is
++    // the surface size in pixels.
++    if (!layer_) {
++      return false;
++    }
++    auto drawable_size = reinterpret_cast<CGSize (*)(const void*, SEL)>(objc_msgSend);
++    CGSize size = drawable_size(layer_, sel_registerName("drawableSize"));
++    width_out = uint32_t(size.width);
++    height_out = uint32_t(size.height);
++    return width_out && height_out;
++  }
+   int pixel_width = 0;
+   int pixel_height = 0;
+   if (!SDL_GetWindowSizeInPixels(window_, &pixel_width, &pixel_height)) {

@@ -10,8 +10,8 @@ endif()
 
 add_subdirectory(${REXGLUE_SDK_DIR} rexglue EXCLUDE_FROM_ALL)
 
-add_library(mcla_probe STATIC mcla_probe.cpp)
-target_link_libraries(mcla_probe PRIVATE rex::core MoltenVK::MoltenVK Vulkan::Headers)
+add_library(mcla_probe STATIC mcla_probe.cpp mcla_gfx.cpp)
+target_link_libraries(mcla_probe PRIVATE rex::core rex::ui MoltenVK::MoltenVK Vulkan::Headers)
 
 # A static library does not make CMake build its dependencies; an executable does.
 add_executable(mcla_probe_linkcheck linkcheck.cpp)

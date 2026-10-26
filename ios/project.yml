@@ -24,6 +24,15 @@ targets:
       - sdk: CoreGraphics.framework
       - sdk: UIKit.framework
       - sdk: Foundation.framework
+      - sdk: MetalFX.framework
+      # SDL3 (pulled in by the SDK UI library)
+      - sdk: AVFoundation.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreAudio.framework
+      - sdk: CoreBluetooth.framework
+      - sdk: CoreHaptics.framework
+      - sdk: CoreMotion.framework
+      - sdk: GameController.framework
     settings:
       base:
         SWIFT_OBJC_BRIDGING_HEADER: probe/mcla_probe.h

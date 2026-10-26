@@ -29,6 +29,7 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
         navigationItem.rightBarButtonItems = [
             UIBarButtonItem(title: "Share log", style: .plain, target: self, action: #selector(shareLog)),
             UIBarButtonItem(title: "Run probe", style: .plain, target: self, action: #selector(runProbe)),
+            UIBarButtonItem(title: "Graphics test", style: .plain, target: self, action: #selector(graphicsTest)),
         ]
 
         NotificationCenter.default.addObserver(
@@ -65,6 +66,12 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
 
     @objc private func runProbe() {
         DeviceProbe.run()
+    }
+
+    @objc private func graphicsTest() {
+        let vc = GraphicsTestViewController()
+        vc.modalPresentationStyle = .fullScreen
+        present(vc, animated: true)
     }
 
     @objc private func shareLog() {
