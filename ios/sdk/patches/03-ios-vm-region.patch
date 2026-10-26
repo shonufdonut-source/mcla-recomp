@@ -1,0 +1,27 @@
+diff --git a/src/core/memory_posix.cpp b/src/core/memory_posix.cpp
+index 6788d30..dfc90f8 100644
+--- a/src/core/memory_posix.cpp
++++ b/src/core/memory_posix.cpp
+@@ -22,7 +22,9 @@
+ 
+ #if REX_PLATFORM_MAC
+ #include <mach/mach.h>
++#if !(defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
+ #include <mach/mach_vm.h>
++#endif
+ #include <mach/vm_region.h>
+ #endif  // REX_PLATFORM_MAC
+ 
+@@ -422,6 +424,12 @@ bool Protect(void* base_address, size_t length, PageAccess access, PageAccess* o
+ 
+ bool QueryProtect(void* base_address, size_t& length, PageAccess& access_out) {
+ #if REX_PLATFORM_MAC
++#if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
++  // iOS has no mach_vm.h; vm_region_64 is the same query with natural-width types.
++  using mach_vm_address_t = vm_address_t;
++  using mach_vm_size_t = vm_size_t;
++  auto mach_vm_region = &vm_region_64;
++#endif
+   mach_vm_address_t address = reinterpret_cast<mach_vm_address_t>(base_address);
+   mach_vm_size_t region_size = 0;
+   vm_region_basic_info_data_64_t info;
