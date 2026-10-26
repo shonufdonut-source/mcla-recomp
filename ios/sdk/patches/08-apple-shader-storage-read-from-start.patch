@@ -1,0 +1,22 @@
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index 6181d9e..f05c3b3 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -428,6 +428,9 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+     return;
+   }
+   pipeline_storage_file_flush_needed_ = false;
++  // "a+" leaves the stream at the end of the file on Apple platforms (BSD libc) and at the start
++  // on others; read from the start everywhere, or the header read fails and the file is emptied.
++  rex::filesystem::Seek(pipeline_storage_file_, 0, SEEK_SET);
+   // 'XEPS'.
+   const uint32_t pipeline_storage_magic = 0x53504558;
+   const uint32_t pipeline_storage_magic_api = edram_fragment_shader_interlock ? 1u : 0u;
+@@ -514,6 +517,7 @@ void VulkanPipelineCache::InitializeShaderStorage(const std::filesystem::path& c
+   }
+   ++shader_storage_index_;
+   shader_storage_file_flush_needed_ = false;
++  rex::filesystem::Seek(shader_storage_file_, 0, SEEK_SET);
+   struct {
+     uint32_t magic;
+     uint32_t version_swapped;

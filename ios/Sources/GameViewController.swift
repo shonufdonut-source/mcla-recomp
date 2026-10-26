@@ -92,9 +92,15 @@ final class GameViewController: UIViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(thermalChanged),
                                                name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
         thermalChanged()
+        NotificationCenter.default.addObserver(self, selector: #selector(memoryWarning),
+                                               name: UIApplication.didReceiveMemoryWarningNotification, object: nil)
     }
 
     @objc private func tick() { mcla_game_tick() }
+
+    @objc private func memoryWarning() {
+        log("iOS memory warning: the app is close to its memory limit")
+    }
 
     /// A hot iPad slows itself down, so heat changes go in the log next to the frame rate.
     @objc private func thermalChanged() {

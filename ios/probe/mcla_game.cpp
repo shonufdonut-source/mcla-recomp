@@ -50,6 +50,9 @@ extern "C" void mcla_game_set_option(const char* name, const char* value) {
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL_main.h>
 
+#include <mach/mach.h>
+#include <os/proc.h>
+
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -106,6 +109,18 @@ void ListGuestThreads() {
     P("  thread '%s' id %u%s", thread->name().c_str(), static_cast<unsigned>(thread->thread_id()),
       thread->is_guest_thread() ? " (guest)" : "");
   }
+}
+
+// This process's memory as iOS counts it (phys_footprint, what jetsam kills on) and what iOS
+// still grants; when the app vanishes without a crash line, these show if memory was the cause.
+void LogMemory() {
+  task_vm_info_data_t info{};
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  const bool ok = task_info(mach_task_self(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&info),
+                            &count) == KERN_SUCCESS;
+  P("memory: %llu MB used, %llu MB still available to the app",
+    ok ? static_cast<unsigned long long>(info.phys_footprint >> 20) : 0ull,
+    static_cast<unsigned long long>(os_proc_available_memory() >> 20));
 }
 
 // What the shader storage holds: if a second run lists the same files and still creates as many
@@ -318,6 +333,7 @@ extern "C" void mcla_game_tick(void) {
     P("display: %.1f fps over the last 5 s (presenter paints)",
       static_cast<double>(paints - g_game->paints_at_last_report) / 5.0);
     g_game->paints_at_last_report = paints;
+    LogMemory();
   }
   if (g_game->window && (second == 60 || second == 300)) ListCache("now");
   // Twice, a few seconds apart: which threads exist, and whether the set changes.

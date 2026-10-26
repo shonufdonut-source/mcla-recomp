@@ -26,6 +26,10 @@ struct LaunchToggle {
     let detail: String
     let cvar: String
     let defaultValue: Bool
+    /// The cvar means the opposite of the switch (on = cvar false).
+    var invert = false
+
+    var cvarValue: String { isOn != invert ? "true" : "false" }
 
     var isOn: Bool {
         get { UserDefaults.standard.object(forKey: "launch." + key) as? Bool ?? defaultValue }
@@ -53,6 +57,9 @@ enum LaunchSettings {
     static let toggles = [
         LaunchToggle(key: "vsync", title: "V-sync", detail: "Off can tear but reacts sooner",
                      cvar: "vsync", defaultValue: true),
+        LaunchToggle(key: "showIncomplete", title: "Keep showing frames while shaders build",
+                     detail: "On: objects can pop in for a moment. Off: the picture holds still until they are ready",
+                     cvar: "vulkan_async_skip_incomplete_frames", defaultValue: true, invert: true),
         LaunchToggle(key: "shadows", title: "Shadows", detail: "Off is the largest saving",
                      cvar: "mcla_shadows", defaultValue: true),
         LaunchToggle(key: "motionBlur", title: "Motion blur", detail: "",
@@ -67,7 +74,7 @@ enum LaunchSettings {
 
     static func applyToGame() {
         for choice in choices { mcla_game_set_option(choice.cvar, choice.value) }
-        for toggle in toggles { mcla_game_set_option(toggle.cvar, toggle.isOn ? "true" : "false") }
+        for toggle in toggles { mcla_game_set_option(toggle.cvar, toggle.cvarValue) }
     }
 
     static var summary: String {
