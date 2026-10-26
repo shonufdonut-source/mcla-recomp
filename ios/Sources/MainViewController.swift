@@ -143,7 +143,10 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
 
     private func checkSavedFolder() {
         guard let data = UserDefaults.standard.data(forKey: Self.bookmarkKey) else {
-            log("no game folder imported yet; tap Import game folder")
+            // Only worth saying when On My iPad > MCLA does not have the game either.
+            if GameFolder.locate() == nil {
+                log("no game folder found; copy it to On My iPad > MCLA > game or tap Import game folder")
+            }
             return
         }
         var stale = false
