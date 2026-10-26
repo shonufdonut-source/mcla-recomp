@@ -112,8 +112,8 @@ Nothing is built until you choose.
 
 ### 5b. Upscaling options (assumed until measured)
 
-- MetalFX: believed to need A14 or newer (Apple GPU family 7) on iOS; the A12X reports family 5. The startup
-  report now logs `MTLFXSpatialScalerDescriptor.supportsDevice` to settle it.
+- MetalFX, measured on the A12X iPad: **spatial upscaling supported, temporal not** (my A14+ guess was wrong).
+  Spatial MetalFX on the presenter's final image is an option; it would need a Metal-side pass after MoltenVK.
 - The SDK presenter already has FSR 1 and CAS paint effects (Vulkan compute), which do not depend on MetalFX.
 
 ## 6. iloader (nab138/iloader, MIT, ~4.3k stars, pushed 2026-10-22)
@@ -154,7 +154,7 @@ Nothing is built until you choose.
 |---|---|---|
 | Per-app memory | 2862 MB available | Fits the planned budgets with headroom. |
 | BC texture compression | **false** | Xenos textures (DXT/BC) must be decoded to a supported format at upload: roughly 4x to 8x the memory for BC1/BC3 if decoded to RGBA8. The biggest memory risk; size the texture cache with this in mind. |
-| Argument buffers | **tier 0** | MoltenVK must bind resources directly, with Metal's per-stage limits (about 31 textures and 16 samplers per stage on this GPU family; verify). Check the renderer's descriptor layout against these. |
+| Argument buffers | raw value 0 = **MTLArgumentBuffersTier1** (corrected) | Supported at tier 1: MoltenVK logged "Descriptor sets binding resources using Metal argument buffers" on device. Per-stage limits still apply (16 samplers, 96 sampled images per stage reported by MoltenVK). |
 | Raster order groups | true | Makes VK_EXT_fragment_shader_interlock plausible through MoltenVK; verify in the MoltenVK feature report. |
 | 32-bit float filtering | false | Linear filtering of RGBA32F textures is unavailable; emulate or accept nearest. |
 | GPU family | apple5 (not apple6) | No apple6+ features. |

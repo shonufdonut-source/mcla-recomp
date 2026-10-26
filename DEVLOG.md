@@ -109,3 +109,8 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   SDK log lines are forwarded to the app log. Startup report logs MetalFX support.
 - [CI] Built first try (run 40263116359): 5.8 MB arm64, 12 archives merged.
 - [assumed] Draws on the iPad. **Not run on the device yet.**
+- [device] Graphics test: the SDK created the Vulkan instance (`VK_EXT_metal_surface`, MoltenVK direct) and the
+  device (interlock, robustness2, stencil export), then **the app closed** right after MoltenVK's "Created
+  VkDevice" line, inside `VulkanProvider::Create`. Reproduced twice. Probe still passes. Cause unknown: waiting
+  for the iOS crash report (.ips). Device thermal state was 2 (serious) at launch.
+- [device] MetalFX spatial upscaling supported, temporal not. Argument buffers are tier 1 (NOTES corrected).
