@@ -290,6 +290,8 @@ struct FrameWorkSample {
   uint64_t draws = 0, host_draws = 0;
   // SDK patch 11 (gpu_stats.h): texture loads, resolves, render target transfers so far.
   int64_t texture_loads = 0, resolves = 0, transfers = 0;
+  // SDK patch 12: textures created, and destroyed over the hard or the soft cache limit.
+  int64_t textures_created = 0, evicted_hard = 0, evicted_soft = 0;
   uint64_t submissions[4] = {};
   MvkPerformanceStatistics mvk{};
   bool mvk_valid = false;
@@ -359,6 +361,9 @@ FrameWorkSample TakeFrameWorkSample() {
   sample.texture_loads = stats::Get(stats::kTextureLoads);
   sample.resolves = stats::Get(stats::kResolves);
   sample.transfers = stats::Get(stats::kRenderTargetTransfers);
+  sample.textures_created = stats::Get(stats::kTexturesCreated);
+  sample.evicted_hard = stats::Get(stats::kTexturesEvictedHard);
+  sample.evicted_soft = stats::Get(stats::kTexturesEvictedSoft);
   VkDevice device = GameVkDevice();
   PfnGetPerformanceStatisticsMVK get_statistics = device ? GetPerformanceStatisticsMVK() : nullptr;
   if (get_statistics) {
@@ -408,6 +413,15 @@ void LogFrameWork(const FrameWorkSample& before, const FrameWorkSample& after, d
     double(after.texture_loads - before.texture_loads) * per_frame,
     double(after.resolves - before.resolves) * per_frame,
     double(after.transfers - before.transfers) * per_frame);
+  // Loads of new textures against reloads after the game wrote texture memory; a cache that is
+  // too small destroys textures over the hard limit and creates them again on the next frame.
+  const int64_t loads = after.texture_loads - before.texture_loads;
+  const int64_t created = after.textures_created - before.textures_created;
+  P("textures: per frame %.1f created, %.1f reloaded after the game changed them; %.1f destroyed "
+    "over the hard cache limit, %.1f over the soft limit",
+    double(created) * per_frame, double(std::max<int64_t>(loads - created, 0)) * per_frame,
+    double(after.evicted_hard - before.evicted_hard) * per_frame,
+    double(after.evicted_soft - before.evicted_soft) * per_frame);
   // What the GPU memory holds (the rest of "GPU allocations" is the 512 MB guest memory buffer,
   // the EDRAM buffer, upload buffers and MoltenVK's own).
   namespace stats = rex::graphics::stats;

@@ -103,6 +103,10 @@ jobs:
           zip -qry MCLA-unsigned.ipa Payload
           ls -l MCLA-unsigned.ipa "$APP/MCLA"
           file "Payload/MCLA.app/MCLA"
+          # The private build signs a second IPA with this; check it signs and reads back.
+          cp -R Payload/MCLA.app "$RUNNER_TEMP/MCLA-memory.app"
+          codesign -f -s - --entitlements MCLA-memory.entitlements "$RUNNER_TEMP/MCLA-memory.app"
+          codesign -d --entitlements - "$RUNNER_TEMP/MCLA-memory.app" 2>&1 | grep increased-memory-limit
 
       - uses: actions/upload-artifact@v4
         with:

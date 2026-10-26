@@ -59,9 +59,28 @@ enum LaunchSettings {
         options: [("Normal", "1.0"), ("Brighter", "1.15"), ("Bright", "1.3"), ("Brightest", "1.5")],
         defaultValue: "1.3")
 
-    static let choices = [frameRate, resolution, brightness, intro]
+    /// How much texture memory the SDK keeps before destroying textures. Auto is the memory
+    /// saver's 320 MB (the SDK's 768 MB without it). A city frame can need more than 320 MB, and
+    /// then textures are destroyed and loaded again every frame.
+    static let textureCache = LaunchChoice(
+        key: "textureCache", title: "Texture cache",
+        detail: "Bigger stops textures reloading every frame in the city, but uses more memory. Try 512 MB with Pixel interlock.",
+        cvar: "texture_cache_memory_limit_hard",
+        options: [("Auto", "auto"), ("512 MB", "512"), ("768 MB", "768")], defaultValue: "auto")
+    /// How the Xbox 360's EDRAM is emulated. Standard uses Vulkan render targets and copies
+    /// between them; this GPU stores and reloads its tile memory for every copy. Pixel interlock
+    /// emulates EDRAM in a buffer with fragment shader interlock (Metal raster order groups), so
+    /// those copies and most render target memory go away.
+    static let renderPath = LaunchChoice(
+        key: "renderPath", title: "Render path",
+        detail: "Experimental: Pixel interlock skips most render target copies and memory. It may be faster or slower here, and may draw some things wrong. Shaders build again the first time.",
+        cvar: "render_target_path_vulkan",
+        options: [("Standard", "fbo"), ("Pixel interlock", "fsi")], defaultValue: "fbo")
+
+    static let choices = [frameRate, resolution, brightness, intro, textureCache, renderPath]
     /// Not part of a preset: changing them keeps the preset selected.
-    static let personalChoiceKeys: Set<String> = [brightness.key, intro.key]
+    static let personalChoiceKeys: Set<String> = [brightness.key, intro.key, textureCache.key,
+                                                  renderPath.key]
 
     /// iOS ends the app when it nears the per-app memory budget (about 2.8 GB on a 4 GB iPad).
     /// The SDK's texture cache alone may grow to 768 MB, and this GPU stores the game's
@@ -105,10 +124,17 @@ enum LaunchSettings {
     ]
 
     static func applyToGame() {
-        for choice in choices { mcla_game_set_option(choice.cvar, choice.value) }
+        for choice in choices where choice.key != textureCache.key {
+            mcla_game_set_option(choice.cvar, choice.value)
+        }
         for toggle in toggles { mcla_game_set_option(toggle.cvar, toggle.cvarValue) }
         if memorySaver.isOn {
             for (cvar, value) in memorySaverValues { mcla_game_set_option(cvar, value) }
+        }
+        // A chosen size replaces the saver's limits; the soft limit is half, as the SDK's are.
+        if let hard = Int(textureCache.value) {
+            mcla_game_set_option("texture_cache_memory_limit_hard", String(hard))
+            mcla_game_set_option("texture_cache_memory_limit_soft", String(hard / 2))
         }
         mcla_game_set_option(smallTextures.cvar, smallTextures.cvarValue)
         for (cvar, value) in LaunchPresets.detailValues.sorted(by: { $0.key < $1.key }) {

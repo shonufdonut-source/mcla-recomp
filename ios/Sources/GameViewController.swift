@@ -73,8 +73,35 @@ final class GameViewController: UIViewController {
             share.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             share.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
         ])
-        // Faint after a few seconds so it does not sit over the game; it still takes taps.
-        UIView.animate(withDuration: 1, delay: 5, options: [.allowUserInteraction]) { share.alpha = 0.2 }
+        shareButton = share
+        // Gone after a few seconds so it does not sit over the game; a two-finger tap brings it
+        // back for a few seconds.
+        let reveal = UITapGestureRecognizer(target: self, action: #selector(revealShareButton))
+        reveal.numberOfTouchesRequired = 2
+        view.addGestureRecognizer(reveal)
+        scheduleShareButtonHide()
+    }
+
+    private var shareButton: UIButton?
+    private var hideShareButton: DispatchWorkItem?
+
+    @objc private func revealShareButton() {
+        guard let share = shareButton else { return }
+        share.isHidden = false
+        UIView.animate(withDuration: 0.2) { share.alpha = 1 }
+        scheduleShareButtonHide()
+    }
+
+    private func scheduleShareButtonHide() {
+        hideShareButton?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let share = self?.shareButton else { return }
+            UIView.animate(withDuration: 0.5, animations: { share.alpha = 0 }) { done in
+                if done { share.isHidden = true }
+            }
+        }
+        hideShareButton = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
     }
 
     override func viewDidAppear(_ animated: Bool) {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Signed into the second IPA only (ad hoc): asks iOS for a higher per-app memory limit. The
+     sideloader has to keep it and the free developer account has to allow it; the log's
+     os_proc_available_memory line at start-up shows whether it took. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.developer.kernel.increased-memory-limit</key>
+	<true/>
+</dict>
+</plist>

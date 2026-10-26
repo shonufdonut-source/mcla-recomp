@@ -1,0 +1,54 @@
+diff --git a/include/rex/graphics/gpu_stats.h b/include/rex/graphics/gpu_stats.h
+index da707b7..02aca67 100644
+--- a/include/rex/graphics/gpu_stats.h
++++ b/include/rex/graphics/gpu_stats.h
+@@ -23,6 +23,12 @@ enum Counter : int {
+   kTextureLoads,
+   kResolves,
+   kRenderTargetTransfers,
++  // Textures created (a first load; other loads are reloads after the game wrote the memory),
++  // and textures destroyed for being over texture_cache_memory_limit_hard, or over the soft
++  // limit and unused for texture_cache_memory_limit_soft_lifetime.
++  kTexturesCreated,
++  kTexturesEvictedHard,
++  kTexturesEvictedSoft,
+   kCounterCount,
+ };
+ 
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 5007076..329ca9f 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -297,6 +297,7 @@ void TextureCache::CompletedSubmissionUpdated(uint64_t completed_submission_inde
+       // any texture has been destroyed.
+       ResetTextureBindings();
+     }
++    stats::Add(limit_hard_exceeded ? stats::kTexturesEvictedHard : stats::kTexturesEvictedSoft, 1);
+     // Remove the texture from the map and destroy it via its unique_ptr.
+     auto found_texture_it = textures_.find(texture->key());
+     assert_true(found_texture_it != textures_.end());
+@@ -661,6 +662,7 @@ TextureCache::Texture::Texture(TextureCache& texture_cache, const TextureKey& ke
+   }
+ 
+   stats::Add(stats::kTextureCount, 1);
++  stats::Add(stats::kTexturesCreated, 1);
+   stats::texture_format_count[uint32_t(key_.format) & 63].fetch_add(1, std::memory_order_relaxed);
+ 
+   // Never try to upload data that doesn't exist.
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index b2e9ce1..d510283 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -967,6 +967,12 @@ bool VulkanRenderTargetCache::Initialize(uint32_t shared_memory_binding_count) {
+               sizeof(last_update_framebuffer_attachments_));
+   last_update_framebuffer_ = VK_NULL_HANDLE;
+ 
++  // The path can differ from render_target_path_vulkan (fallbacks above), so say which runs.
++  REXGPU_INFO("VulkanRenderTargetCache: {} path (render_target_path_vulkan \"{}\")",
++              path_ == Path::kPixelShaderInterlock ? "fragment shader interlock (fsi)"
++                                                   : "host render targets (fbo)",
++              REXCVAR_GET(render_target_path_vulkan));
++
+   InitializeCommon();
+   return true;
+ }

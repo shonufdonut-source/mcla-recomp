@@ -74,13 +74,19 @@ class IOSWindow final : public rex::ui::Window {
             uint32_t height)
       : Window(context, "MCLA", width, height), layer_(layer), width_(width), height_(height) {}
 
-  ~IOSWindow() override { EnterDestructor(); }
+  ~IOSWindow() override {
+    dispatch_sync_f(paint_queue_, nullptr, [](void*) {});
+    EnterDestructor();
+  }
 
+  // On the paint queue, so it never runs while a paint is using the surface.
   void Resize(uint32_t width, uint32_t height) {
-    width_ = width;
-    height_ = height;
-    WindowDestructionReceiver destruction_receiver(this);
-    OnActualSizeUpdate(width, height, destruction_receiver);
+    RunOnPaintQueue([this, width, height] {
+      width_ = width;
+      height_ = height;
+      WindowDestructionReceiver destruction_receiver(this);
+      OnActualSizeUpdate(width, height, destruction_receiver);
+    });
   }
 
  protected:
@@ -106,9 +112,13 @@ class IOSWindow final : public rex::ui::Window {
     return std::make_unique<rex::ui::CAMetalLayerSurface>(nullptr, nullptr, layer_);
   }
 
+  // Painting waits for the GPU, which at a low frame rate takes most of each second. On the
+  // main thread that left taps (Share log) unanswered for seconds, so paints run on their own
+  // serial queue. The presenter only needs its "UI thread" calls to come from one thread at a
+  // time; after Open, paints and resizes all go through this queue.
   void RequestPaintImpl() override {
     if (paint_pending_.exchange(true)) return;
-    app_context().CallInUIThreadDeferred([this] {
+    RunOnPaintQueue([this] {
       paint_pending_ = false;
       // Off screen iOS refuses GPU work and loses the device, so no presenting then.
       if (paused_) return;
@@ -118,13 +128,29 @@ class IOSWindow final : public rex::ui::Window {
   }
 
  public:
-  void SetPaused(bool paused) { paused_ = paused; }
+  // Pausing waits for a paint already running, so none is in flight when the app leaves.
+  void SetPaused(bool paused) {
+    paused_ = paused;
+    if (paused) dispatch_sync_f(paint_queue_, nullptr, [](void*) {});
+  }
 
   // Presenter paints so far: each one shows the newest guest frame, so paints per second is
   // the frame rate on screen.
   uint64_t paints() const { return paints_.load(); }
 
  private:
+  template <typename F>
+  void RunOnPaintQueue(F f) {
+    auto* task = new F(std::move(f));
+    dispatch_async_f(paint_queue_, task, [](void* p) {
+      std::unique_ptr<F> fn(static_cast<F*>(p));
+      (*fn)();
+    });
+  }
+
+  dispatch_queue_t paint_queue_ = dispatch_queue_create(
+      "mcla.paint", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL,
+                                                            QOS_CLASS_USER_INTERACTIVE, 0));
   std::atomic<uint64_t> paints_{0};
   const void* layer_;
   uint32_t width_, height_;
