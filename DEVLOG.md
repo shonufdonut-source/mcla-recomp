@@ -91,7 +91,10 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
 - [device] SDK page allocation and patch 03 OK. `shm_open` EPERM. A 4.5 GB reservation with all 9 guest views and
   correct aliasing works on a temp-file backing. SDK fault handler works. SDK fibers fail (ucontext).
 - Patch 04: SDK `CreateFileMappingHandle` uses an unlinked temp file on iOS; the probe now maps the guest views
-  through that SDK call. **Not yet re-run on device.**
+  through that SDK call.
+- [device] Re-run with patch 04: `rex::memory::CreateFileMappingHandle 4.50 GB OK (patch 04, temp file)`, 4.5 GB
+  reservation, all 9 views, aliasing OK, fault handler OK. Steps 1, 2 match the first run. **The SDK's guest
+  memory path is verified on the iPad.**
 - Fibers deferred: only reachable through the `rexcrt_CreateFiber` hook, which MCLA's generated code does not
   reference (local read-only search of `generated/`, nothing copied).
 - Noted: the Documents folder no longer had `default.xex` after this install (1 file, 0 MB). Not investigated.

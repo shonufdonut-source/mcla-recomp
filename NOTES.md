@@ -171,7 +171,7 @@ SDK on device:
 | Item | Measured | Consequence |
 |---|---|---|
 | AllocFixed / Protect / QueryProtect | OK (page size 16 KB) | iOS patch 03 (`vm_region_64`) works. |
-| `shm_open` | **EPERM** | SDK's file mapping fails on iOS; patch 04 uses an unlinked temp file. |
+| `shm_open` | **EPERM** | SDK's file mapping fails on iOS; patch 04 uses an unlinked temp file (verified on device). |
 | 4.5 GB contiguous reservation + 9 guest views + aliasing | **OK** (temp-file backing) | Guest memory layout works with a free Apple ID; no extended-VA entitlement needed. Touching 256 MB did not lower `os_proc_available_memory` (file-backed). |
 | SDK fault handler | OK (write, exact address, retry correct) | Guest MMIO trapping works. |
 | SDK fibers (ucontext) | `ConvertCurrentThread` fails | Only used by the `rexcrt_CreateFiber` hook; MCLA's generated code, config and source reference no `rexcrt_` hook, so deferred. Needs an ARM64 context switch if a title uses it. |
