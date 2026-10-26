@@ -100,8 +100,11 @@ struct MvkPerformanceStatistics {
       wait_present_swapchains, present_swapchains, frame_interval;
   MvkTracker gpu_memory_allocated;
 };
-extern "C" VkResult vkGetPerformanceStatisticsMVK(VkDevice device, MvkPerformanceStatistics* perf,
-                                                  size_t* perf_size);
+// Not an exported symbol of the static MoltenVK: an instance entry point, from
+// vkGetInstanceProcAddr.
+using PfnGetPerformanceStatisticsMVK = VkResult (*)(VkDevice device,
+                                                    MvkPerformanceStatistics* perf,
+                                                    size_t* perf_size);
 
 // generated/default/mcla_init.cpp
 extern const rex::PPCImageInfo PPCImageConfig;
@@ -295,12 +298,30 @@ struct FrameWorkSample {
 };
 FrameWorkSample g_last_work;
 
-VkDevice GameVkDevice() {
+rex::ui::vulkan::VulkanProvider* GameVkProvider() {
   auto* graphics = g_game && g_game->runtime ? g_game->runtime->graphics_system() : nullptr;
-  auto* provider =
-      graphics ? static_cast<rex::ui::vulkan::VulkanProvider*>(graphics->provider()) : nullptr;
+  return graphics ? static_cast<rex::ui::vulkan::VulkanProvider*>(graphics->provider()) : nullptr;
+}
+
+VkDevice GameVkDevice() {
+  auto* provider = GameVkProvider();
   return provider && provider->vulkan_device() ? provider->vulkan_device()->device()
                                                : VK_NULL_HANDLE;
+}
+
+PfnGetPerformanceStatisticsMVK GetPerformanceStatisticsMVK() {
+  static PfnGetPerformanceStatisticsMVK function = nullptr;
+  static bool looked_up = false;
+  if (looked_up) return function;
+  auto* provider = GameVkProvider();
+  if (!provider || !provider->vulkan_instance()) return nullptr;
+  looked_up = true;
+  const auto* instance = provider->vulkan_instance();
+  function = reinterpret_cast<PfnGetPerformanceStatisticsMVK>(
+      instance->functions().vkGetInstanceProcAddr(instance->instance(),
+                                                  "vkGetPerformanceStatisticsMVK"));
+  if (!function) P("Metal: MoltenVK has no vkGetPerformanceStatisticsMVK; no Metal lines");
+  return function;
 }
 
 void SampleThreads(FrameWorkSample& sample) {
@@ -338,12 +359,14 @@ FrameWorkSample TakeFrameWorkSample() {
   sample.texture_loads = stats::Get(stats::kTextureLoads);
   sample.resolves = stats::Get(stats::kResolves);
   sample.transfers = stats::Get(stats::kRenderTargetTransfers);
-  if (VkDevice device = GameVkDevice()) {
+  VkDevice device = GameVkDevice();
+  PfnGetPerformanceStatisticsMVK get_statistics = device ? GetPerformanceStatisticsMVK() : nullptr;
+  if (get_statistics) {
     size_t expected = 0;
-    vkGetPerformanceStatisticsMVK(device, nullptr, &expected);
+    get_statistics(device, nullptr, &expected);
     if (expected == sizeof(sample.mvk)) {
       size_t size = sizeof(sample.mvk);
-      sample.mvk_valid = vkGetPerformanceStatisticsMVK(device, &sample.mvk, &size) == VK_SUCCESS;
+      sample.mvk_valid = get_statistics(device, &sample.mvk, &size) == VK_SUCCESS;
     } else {
       static bool reported = false;
       if (!reported) {
