@@ -51,8 +51,17 @@ enum LaunchSettings {
         detail: "Skip also removes the logo from the title screen.",
         cvar: "mcla_intro", options: [("Normal", "normal"), ("Fast", "fast"), ("Skip", "skip")],
         defaultValue: "normal")
+    /// The game's brightness curve is made for a TV and looks dull on the iPad (SDK patch 10).
+    static let brightness = LaunchChoice(
+        key: "brightness", title: "Brightness",
+        detail: "Brightens loading screens, menus, cutscenes and play alike. Normal is the game as shipped.",
+        cvar: "display_gamma_boost",
+        options: [("Normal", "1.0"), ("Brighter", "1.15"), ("Bright", "1.3"), ("Brightest", "1.5")],
+        defaultValue: "1.15")
 
-    static let choices = [frameRate, resolution, intro]
+    static let choices = [frameRate, resolution, brightness, intro]
+    /// Not part of a preset: changing them keeps the preset selected.
+    static let personalChoiceKeys: Set<String> = [brightness.key, intro.key]
 
     /// iOS ends the app when it nears the per-app memory budget (about 2.8 GB on a 4 GB iPad).
     /// The SDK's texture cache alone may grow to 768 MB, and this GPU stores the game's
@@ -717,8 +726,8 @@ final class GraphicsSettingsViewController: UITableViewController {
     @objc private func choiceChanged(_ sender: UISegmentedControl) {
         let choice = LaunchSettings.choices[sender.tag]
         choice.value = choice.options[sender.selectedSegmentIndex].value
-        // The start-up logos are not part of a preset.
-        if choice.key != LaunchSettings.intro.key { leftPreset() }
+        // Brightness and the start-up logos are not part of a preset.
+        if !LaunchSettings.personalChoiceKeys.contains(choice.key) { leftPreset() }
     }
 
     @objc private func toggleChanged(_ sender: UISwitch) {

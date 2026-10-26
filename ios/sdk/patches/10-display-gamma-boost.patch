@@ -1,0 +1,67 @@
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 53dcb7f..1a49d77 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -9,6 +9,7 @@
+  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
+  */
+ 
++#include <cmath>
+ #include <atomic>
+ #include <chrono>
+ #include <algorithm>
+@@ -48,6 +49,10 @@
+ #include <rex/ui/vulkan/presenter.h>
+ #include <rex/ui/vulkan/util.h>
+ 
++REXCVAR_DEFINE_DOUBLE(display_gamma_boost, 1.0, "GPU",
++                      "Brightens (above 1) or darkens (below 1) the picture by raising the game's "
++                      "gamma ramp to the power 1 / this value; 1 leaves it as the game set it");
++
+ // Legacy backend compatibility aliases for shared readback controls.
+ REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
+                     "Read render-to-texture results on the CPU")
+@@ -2578,6 +2583,43 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+                                            : static_cast<const void*>(gamma_ramp_256_entry_table()),
+                         gamma_ramp_size);
+           }
++          // The game's ramp is made for a TV; display_gamma_boost bends it for the host screen.
++          const double gamma_boost = REXCVAR_GET(display_gamma_boost);
++          if (gamma_boost > 0.0 && gamma_boost != 1.0) {
++            const double exponent = 1.0 / gamma_boost;
++            auto bend = [exponent](uint32_t value, uint32_t max_value) {
++              const double bent =
++                  std::pow(double(std::min(value, max_value)) / double(max_value), exponent);
++              return uint32_t(bent * double(max_value) + 0.5);
++            };
++            if (use_pwl_gamma_ramp) {
++              // output = base + (multiplier * delta) / 8 over 128 segments per channel, in 1/65472
++              // units (the shader's 1.52737048e-05): bend both ends of every segment.
++              auto pwl = reinterpret_cast<reg::DC_LUT_PWL_DATA*>(gamma_ramp_frame_upload);
++              const bool swapped = std::endian::native != std::endian::little;
++              for (size_t i = 0; i < 128 * 3; ++i) {
++                const uint32_t base = swapped ? pwl[i].delta : pwl[i].base;
++                const uint32_t delta = swapped ? pwl[i].base : pwl[i].delta;
++                const uint32_t new_base = bend(base, 65472);
++                const uint32_t new_end = bend(base + delta, 65472);
++                const uint32_t new_delta = new_end > new_base ? new_end - new_base : 0;
++                if (swapped) {
++                  pwl[i].delta = new_base;
++                  pwl[i].base = new_delta;
++                } else {
++                  pwl[i].base = new_base;
++                  pwl[i].delta = new_delta;
++                }
++              }
++            } else {
++              auto table = reinterpret_cast<reg::DC_LUT_30_COLOR*>(gamma_ramp_frame_upload);
++              for (size_t i = 0; i < 256; ++i) {
++                table[i].color_10_red = bend(table[i].color_10_red, 1023);
++                table[i].color_10_green = bend(table[i].color_10_green, 1023);
++                table[i].color_10_blue = bend(table[i].color_10_blue, 1023);
++              }
++            }
++          }
+           bool gamma_ramp_has_upload_buffer = gamma_ramp_upload_buffer_memory_ != VK_NULL_HANDLE;
+           VkPipelineStageFlags gamma_ramp_read_stage_mask =
+               VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
