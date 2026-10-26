@@ -61,3 +61,14 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   links its driver (`vk_icdGetInstanceProcAddr`). That source change in `vulkan_instance.cpp` is still to do.
 - [read] Fibers (`fiber_posix.cpp`, ucontext) are only used for the guest `CreateFiber` API, not every guest
   thread. Whether iOS allows ucontext is to be shown by the compile.
+- [CI] Runs 2-4: MoltenVK's CMake is macOS-only (patch `moltenvk/01`: UIKit + CoreGraphics, static library);
+  SDK executables must not be bundles (`CMAKE_MACOSX_BUNDLE=OFF`); Apple install rules referenced the loader
+  (patch 02).
+- [CI] Run 5: **configure passes for iOS and the whole SDK compiles** apart from 28 failed steps with two causes:
+  float `std::format` needs iOS 16.3+ (minimum raised to iOS 17.0 for SDK and app), and `mach_vm.h` is not
+  available on iOS (patch 03: `vm_region_64`). `fiber_posix.cpp` (ucontext) compiled; whether it links and runs
+  on iOS is **not verified**.
+- [CI] Run 6 (40258451989): **SDK builds for iOS arm64 with 0 failures** (860 steps, including linking the
+  `rexglue` executable). Only a MoltenVK warning about an iOS 18 API remains (device is on 26.7.1).
+  Skeleton app also builds with the iOS 17 minimum.
+- Not yet: linking the SDK into the app, the iOS surface (SDL/CAMetalLayer), calling MoltenVK directly, running on device.
