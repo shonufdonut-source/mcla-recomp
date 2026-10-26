@@ -118,3 +118,11 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   unrecognized selector `setBorderColorMVK:` in `MVKSampler::newMTLSamplerDescriptor` <- `vkCreateSampler` <-
   SDK `UISamplers::Create`. That is a MoltenVK Objective-C category, dropped by the linker from the static
   library. Fix: link with `-ObjC`. Not an iOS or A12X limitation.
+- [CI] `-ObjC` build (run 40264234814): 6.6 MB arm64 (5.8 MB before; the MoltenVK categories are now linked).
+- [device] Graphics test re-run: no crash. `VulkanProvider with GPU emulation requirements: OK`; MoltenVK created
+  3 swapchain images 2388x1668 in the app's `MetalLayerView`; SDK presenter swapchain format 44, FIFO; first
+  frame drawn through the SDK presenter 0.27 s later; `43.9 frames/s over the last 5 s (220 total)`. That window
+  includes ~1.1 s of startup before the first frame, so painting ran at about 60 fps. One sample only: the log
+  was shared after ~4 s, so sustained rate and thermals are not measured. Thermal state 0 at launch.
+  **The SDK presenter path (instance, device, surface, swapchain, immediate drawer) is verified on the iPad**,
+  as far as the log shows. That the bar was visible on screen is the owner's observation, not in the log.

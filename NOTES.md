@@ -188,4 +188,5 @@ SDK on device:
 | `shm_open` | **EPERM** | SDK's file mapping fails on iOS; patch 04 uses an unlinked temp file (verified on device). |
 | 4.5 GB contiguous reservation + 9 guest views + aliasing | **OK** (temp-file backing) | Guest memory layout works with a free Apple ID; no extended-VA entitlement needed. Touching 256 MB did not lower `os_proc_available_memory` (file-backed). |
 | SDK fault handler | OK (write, exact address, retry correct) | Guest MMIO trapping works. |
+| SDK Vulkan presenter into a CAMetalLayer (direct MoltenVK, patches 05/06, `-ObjC`) | **OK**: 3 swapchain images 2388x1668, format 44 (B8G8R8A8_UNORM), FIFO; first frame 0.27 s after the swapchain; 220 frames by 5 s after start (about 60 fps once painting, one sample only) | The SDK's own window/presenter path works on iOS without SDL. MoltenVK's ObjC categories need `-ObjC` at link time. |
 | SDK fibers (ucontext) | `ConvertCurrentThread` fails | Only used by the `rexcrt_CreateFiber` hook; MCLA's generated code, config and source reference no `rexcrt_` hook, so deferred. Needs an ARM64 context switch if a title uses it. |
