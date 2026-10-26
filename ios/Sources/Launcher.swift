@@ -94,12 +94,124 @@ enum LaunchSettings {
         if memorySaver.isOn {
             for (cvar, value) in memorySaverValues { mcla_game_set_option(cvar, value) }
         }
+        for (cvar, value) in LaunchPresets.detailValues.sorted(by: { $0.key < $1.key }) {
+            mcla_game_set_option(cvar, value)
+        }
     }
 
     static var summary: String {
         let fps = frameRate.value
         let res = resolution.options.first { $0.value == resolution.value }?.label ?? "720p"
-        return "\(fps) fps · \(res)"
+        return "\(LaunchPresets.selected?.title ?? "Custom") · \(fps) fps · \(res)"
+    }
+}
+
+// MARK: - Presets
+
+/// One level of detail: values for the launcher's own settings (frame rate, resolution, the
+/// effect switches, memory saver) and for the game's detail options that have no switch of their
+/// own (shadow kinds, level-of-detail distances, traffic and crowd density).
+struct LaunchPreset {
+    let key: String
+    let title: String
+    let detail: String
+    let values: [String: String]
+}
+
+enum LaunchPresets {
+    static let customKey = "custom"
+    static let memorySaverKey = "memory_saver"
+    private static let selectedDefaultsKey = "launch.preset"
+    private static let detailDefaultsKey = "launch.detail"
+
+    /// The game's options that only presets set.
+    static let detailCvars = ["mcla_race_shadows", "mcla_fast_car_shadows", "mcla_foliage_shadows",
+                              "mcla_foliage_impostors", "mcla_city_lod", "mcla_traffic_lod",
+                              "mcla_traffic_distance", "mcla_pedestrians", "mcla_parked_cars"]
+
+    static let all: [LaunchPreset] = [
+        LaunchPreset(key: "minimal", title: "Minimal",
+                     detail: "No shadows or blur, short draw distance, few cars and people. For a hot or busy iPad.",
+                     values: ["mcla_fps": "30", "resolution_scale": "1", "vsync": "true",
+                              "mcla_shadows": "false", "mcla_race_shadows": "false",
+                              "mcla_fast_car_shadows": "true", "mcla_foliage_shadows": "false",
+                              "mcla_foliage_impostors": "false", "mcla_fullscreen_blur": "false",
+                              "mcla_motion_blur": "false", "mcla_depth_of_field": "false",
+                              "mcla_msaa": "false", "mcla_city_lod": "0.5", "mcla_traffic_lod": "0.5",
+                              "mcla_traffic_distance": "200", "mcla_pedestrians": "0.25",
+                              "mcla_parked_cars": "0.25", memorySaverKey: "true"]),
+        LaunchPreset(key: "low", title: "Low",
+                     detail: "Simple car shadows, no blur, reduced distance and crowds. The starting point on this iPad.",
+                     values: ["mcla_fps": "30", "resolution_scale": "1", "vsync": "true",
+                              "mcla_shadows": "true", "mcla_race_shadows": "false",
+                              "mcla_fast_car_shadows": "true", "mcla_foliage_shadows": "false",
+                              "mcla_foliage_impostors": "true", "mcla_fullscreen_blur": "false",
+                              "mcla_motion_blur": "false", "mcla_depth_of_field": "false",
+                              "mcla_msaa": "false", "mcla_city_lod": "0.75", "mcla_traffic_lod": "0.75",
+                              "mcla_traffic_distance": "300", "mcla_pedestrians": "0.5",
+                              "mcla_parked_cars": "0.5", memorySaverKey: "true"]),
+        LaunchPreset(key: "medium", title: "Medium",
+                     detail: "Shadows in races, blur and motion blur on, most of the shipped distance and crowds.",
+                     values: ["mcla_fps": "30", "resolution_scale": "1", "vsync": "true",
+                              "mcla_shadows": "true", "mcla_race_shadows": "true",
+                              "mcla_fast_car_shadows": "true", "mcla_foliage_shadows": "false",
+                              "mcla_foliage_impostors": "true", "mcla_fullscreen_blur": "true",
+                              "mcla_motion_blur": "true", "mcla_depth_of_field": "false",
+                              "mcla_msaa": "false", "mcla_city_lod": "1.0", "mcla_traffic_lod": "1.0",
+                              "mcla_traffic_distance": "350", "mcla_pedestrians": "0.75",
+                              "mcla_parked_cars": "0.75", memorySaverKey: "true"]),
+        LaunchPreset(key: "high", title: "High",
+                     detail: "Everything as on the Xbox 360, at 60 fps. Likely too much for the A12X in the city.",
+                     values: ["mcla_fps": "60", "resolution_scale": "1", "vsync": "true",
+                              "mcla_shadows": "true", "mcla_race_shadows": "true",
+                              "mcla_fast_car_shadows": "false", "mcla_foliage_shadows": "true",
+                              "mcla_foliage_impostors": "true", "mcla_fullscreen_blur": "true",
+                              "mcla_motion_blur": "true", "mcla_depth_of_field": "true",
+                              "mcla_msaa": "false", "mcla_city_lod": "1.0", "mcla_traffic_lod": "1.0",
+                              "mcla_traffic_distance": "400", "mcla_pedestrians": "1.0",
+                              "mcla_parked_cars": "1.0", memorySaverKey: "true"]),
+        LaunchPreset(key: "ultra", title: "Ultra",
+                     detail: "Beyond the original: 1440p, MSAA, longer distances, full texture cache. Expect iOS to close the game on a 4 GB iPad.",
+                     values: ["mcla_fps": "60", "resolution_scale": "2", "vsync": "true",
+                              "mcla_shadows": "true", "mcla_race_shadows": "true",
+                              "mcla_fast_car_shadows": "false", "mcla_foliage_shadows": "true",
+                              "mcla_foliage_impostors": "true", "mcla_fullscreen_blur": "true",
+                              "mcla_motion_blur": "true", "mcla_depth_of_field": "true",
+                              "mcla_msaa": "true", "mcla_city_lod": "1.5", "mcla_traffic_lod": "1.25",
+                              "mcla_traffic_distance": "500", "mcla_pedestrians": "1.0",
+                              "mcla_parked_cars": "1.0", memorySaverKey: "false"]),
+    ]
+
+    static var selectedKey: String {
+        get { UserDefaults.standard.string(forKey: selectedDefaultsKey) ?? customKey }
+        set { UserDefaults.standard.set(newValue, forKey: selectedDefaultsKey) }
+    }
+
+    static var selected: LaunchPreset? { all.first { $0.key == selectedKey } }
+
+    /// What the presets set for the options without a switch; empty until one is picked.
+    static var detailValues: [String: String] {
+        UserDefaults.standard.dictionary(forKey: detailDefaultsKey) as? [String: String] ?? [:]
+    }
+
+    /// First run: start from Low, the level this iPad is most likely to hold.
+    static func ensureInitialized() {
+        guard UserDefaults.standard.string(forKey: selectedDefaultsKey) == nil,
+              let low = all.first(where: { $0.key == "low" }) else { return }
+        apply(low)
+    }
+
+    static func apply(_ preset: LaunchPreset) {
+        for choice in LaunchSettings.choices {
+            if let value = preset.values[choice.cvar] { choice.value = value }
+        }
+        for toggle in LaunchSettings.toggles {
+            if let value = preset.values[toggle.cvar] { toggle.isOn = (value == "true") != toggle.invert }
+        }
+        if let saver = preset.values[memorySaverKey] { LaunchSettings.memorySaver.isOn = saver == "true" }
+        UserDefaults.standard.set(preset.values.filter { detailCvars.contains($0.key) },
+                                  forKey: detailDefaultsKey)
+        selectedKey = preset.key
     }
 }
 
@@ -174,6 +286,7 @@ final class LauncherViewController: UIViewController {
         shadeView.isUserInteractionEnabled = false
         view.addSubview(shadeView)
 
+        LaunchPresets.ensureInitialized()
         buildTopButtons()
         buildColumn()
 
@@ -491,53 +604,75 @@ final class GraphicsSettingsViewController: UITableViewController {
         title = "Graphics"
     }
 
-    // Sections: one per choice, then Memory, then Effects.
-    private var memorySection: Int { LaunchSettings.choices.count }
-    private var effectsSection: Int { LaunchSettings.choices.count + 1 }
+    // Sections: Preset, one per choice, Memory, Effects.
+    private let presetSection = 0
+    private let firstChoiceSection = 1
+    private var memorySection: Int { 1 + LaunchSettings.choices.count }
+    private var effectsSection: Int { 2 + LaunchSettings.choices.count }
+
+    private func choiceIndex(_ section: Int) -> Int? {
+        let index = section - firstChoiceSection
+        return index >= 0 && index < LaunchSettings.choices.count ? index : nil
+    }
 
     private func toggle(at indexPath: IndexPath) -> LaunchToggle {
         indexPath.section == memorySection ? LaunchSettings.memorySaver : LaunchSettings.toggles[indexPath.row]
     }
 
-    override func numberOfSections(in tableView: UITableView) -> Int { LaunchSettings.choices.count + 2 }
+    override func numberOfSections(in tableView: UITableView) -> Int { LaunchSettings.choices.count + 3 }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if section < LaunchSettings.choices.count || section == memorySection { return 1 }
-        return LaunchSettings.toggles.count
+        section == effectsSection ? LaunchSettings.toggles.count : 1
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        if section < LaunchSettings.choices.count { return LaunchSettings.choices[section].title }
+        if section == presetSection { return "Preset" }
+        if let index = choiceIndex(section) { return LaunchSettings.choices[index].title }
         return section == memorySection ? "Memory" : "Effects"
     }
 
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
-        if section < LaunchSettings.choices.count { return LaunchSettings.choices[section].detail }
+        if section == presetSection {
+            return LaunchPresets.selected.map { "\($0.title): \($0.detail)" }
+                ?? "Custom: settings were changed after picking a preset. Pick one to start over."
+        }
+        if let index = choiceIndex(section) { return LaunchSettings.choices[index].detail }
         if section == memorySection {
             return "iOS closes the game if it uses too much memory (about 2.8 GB on this iPad)."
         }
         return "Applied the next time you press Play. Turning effects off makes the game smoother on this iPad."
     }
 
+    private func addSegmented(_ items: [String], selected: Int, tag: Int, action: Selector,
+                              to cell: UITableViewCell) {
+        let control = UISegmentedControl(items: items)
+        control.selectedSegmentIndex = selected
+        control.selectedSegmentTintColor = Theme.accent
+        control.tag = tag
+        control.addTarget(self, action: action, for: .valueChanged)
+        control.translatesAutoresizingMaskIntoConstraints = false
+        cell.contentView.addSubview(control)
+        NSLayoutConstraint.activate([
+            control.leadingAnchor.constraint(equalTo: cell.contentView.layoutMarginsGuide.leadingAnchor),
+            control.trailingAnchor.constraint(equalTo: cell.contentView.layoutMarginsGuide.trailingAnchor),
+            control.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 10),
+            control.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -10),
+            control.heightAnchor.constraint(equalToConstant: 36),
+        ])
+    }
+
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         cell.selectionStyle = .none
-        if indexPath.section < LaunchSettings.choices.count {
-            let choice = LaunchSettings.choices[indexPath.section]
-            let control = UISegmentedControl(items: choice.options.map { $0.label })
-            control.selectedSegmentIndex = choice.options.firstIndex { $0.value == choice.value } ?? 0
-            control.selectedSegmentTintColor = Theme.accent
-            control.tag = indexPath.section
-            control.addTarget(self, action: #selector(choiceChanged(_:)), for: .valueChanged)
-            control.translatesAutoresizingMaskIntoConstraints = false
-            cell.contentView.addSubview(control)
-            NSLayoutConstraint.activate([
-                control.leadingAnchor.constraint(equalTo: cell.contentView.layoutMarginsGuide.leadingAnchor),
-                control.trailingAnchor.constraint(equalTo: cell.contentView.layoutMarginsGuide.trailingAnchor),
-                control.topAnchor.constraint(equalTo: cell.contentView.topAnchor, constant: 10),
-                control.bottomAnchor.constraint(equalTo: cell.contentView.bottomAnchor, constant: -10),
-                control.heightAnchor.constraint(equalToConstant: 36),
-            ])
+        if indexPath.section == presetSection {
+            let selected = LaunchPresets.all.firstIndex(where: { $0.key == LaunchPresets.selectedKey })
+            addSegmented(LaunchPresets.all.map { $0.title }, selected: selected ?? UISegmentedControl.noSegment,
+                         tag: 0, action: #selector(presetChanged(_:)), to: cell)
+        } else if let index = choiceIndex(indexPath.section) {
+            let choice = LaunchSettings.choices[index]
+            let selected = choice.options.firstIndex(where: { $0.value == choice.value }) ?? 0
+            addSegmented(choice.options.map { $0.label }, selected: selected,
+                         tag: index, action: #selector(choiceChanged(_:)), to: cell)
         } else {
             let item = toggle(at: indexPath)
             var content = cell.defaultContentConfiguration()
@@ -555,14 +690,28 @@ final class GraphicsSettingsViewController: UITableViewController {
         return cell
     }
 
+    @objc private func presetChanged(_ sender: UISegmentedControl) {
+        LaunchPresets.apply(LaunchPresets.all[sender.selectedSegmentIndex])
+        tableView.reloadData()
+    }
+
+    /// A change by hand leaves the preset: the settings are now the owner's own mix.
+    private func leftPreset() {
+        LaunchPresets.selectedKey = LaunchPresets.customKey
+        tableView.reloadSections(IndexSet(integer: presetSection), with: .none)
+    }
+
     @objc private func choiceChanged(_ sender: UISegmentedControl) {
         let choice = LaunchSettings.choices[sender.tag]
         choice.value = choice.options[sender.selectedSegmentIndex].value
+        // The start-up logos are not part of a preset.
+        if choice.key != LaunchSettings.intro.key { leftPreset() }
     }
 
     @objc private func toggleChanged(_ sender: UISwitch) {
         let toggle = sender.tag < 0 ? LaunchSettings.memorySaver : LaunchSettings.toggles[sender.tag]
         toggle.isOn = sender.isOn
+        leftPreset()
     }
 }
 
