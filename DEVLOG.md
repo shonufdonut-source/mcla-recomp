@@ -26,3 +26,14 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
 - [assumed] App launches, log viewer, folder picker and device report work. **Not run on the iPad yet.**
 - Next: iPad test of M1a (see `ios/README.md`), then M1b: private repo, link the SDK and recompiled code,
   reach the entry point.
+
+## 2026-10-25: M1a on the iPad
+
+- [device] Skeleton installs with iloader and runs on iPad8,1 (iPad Pro 11" 2018), iPadOS 26.7.1, free Apple ID.
+- [device] physical memory 3786 MB. `os_proc_available_memory` 2862 MB at launch. Better than the 1.5 to 2 GB guess.
+- [device] Metal: Apple A12X GPU, family apple4/apple5 true, apple6/7 false. Unified memory. Max buffer 2048 MB.
+  Recommended working set 2730 MB. Read-write texture tier 2. Raster order groups true.
+- [device] **Argument buffers tier 0**, **BC texture compression false**, **32-bit float filtering false**.
+- Bug seen in the screenshot: every log line was shown twice in the viewer (the file log was not checked).
+  Fixed by rebuilding the viewer text from the log; fix not yet re-tested on device.
+- Not yet tested on device: Import game folder, Share log.

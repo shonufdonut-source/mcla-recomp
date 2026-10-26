@@ -36,8 +36,8 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
     }
 
     @objc private func logAppended(_ note: Notification) {
-        guard let line = note.object as? String else { return }
-        textView.text += (textView.text.isEmpty ? "" : "\n") + line
+        // Rebuild from the log itself so a line is never shown twice.
+        textView.text = Log.shared.text
         let end = NSRange(location: textView.text.utf16.count, length: 0)
         textView.scrollRangeToVisible(end)
     }

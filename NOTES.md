@@ -113,9 +113,9 @@ Nothing is built until you choose.
 
 ## 7. Memory budget (plan, not measured)
 
-- Device: 4 GB RAM. iOS jetsam limit for an app without the memory entitlements is well below that;
-  I expect roughly 1.5 to 2 GB on a 4 GB iPad, but this is a guess to be replaced by a measurement
-  (the first on-device milestone should print `os_proc_available_memory()` on launch).
+- Device: 4 GB RAM (3786 MB reported). **Measured on the iPad (free Apple ID, nothing else open):
+  `os_proc_available_memory` = 2862 MB, recommended working set 2730 MB.** That budget can shrink if other
+  apps are open or the system is under pressure, so plan for a ceiling of about 2.2 GB and re-measure.
 - Guest memory: Xbox 360 had 512 MB. Commit lazily; never touch the whole guest range.
 - Suggested starting budgets within a ~1.5 GB ceiling: guest RAM up to ~512 MB, texture cache
   ~300 MB, render targets/EDRAM emulation at native 720p ~150 MB, shader/pipeline cache ~100 MB,
@@ -133,3 +133,14 @@ Nothing is built until you choose.
 4. **M3**: PC prep script (Python) that validates and arranges extracted files. No upload.
 5. **M4**: rendering through MoltenVK in stages (clear, geometry, textures, shaders, lighting).
 6. **M5**: audio, then touch and controllers, then A12X tuning.
+
+## 9. Measured on the A12X iPad (M1a, on device)
+
+| Item | Measured | Consequence |
+|---|---|---|
+| Per-app memory | 2862 MB available | Fits the planned budgets with headroom. |
+| BC texture compression | **false** | Xenos textures (DXT/BC) must be decoded to a supported format at upload: roughly 4x to 8x the memory for BC1/BC3 if decoded to RGBA8. The biggest memory risk; size the texture cache with this in mind. |
+| Argument buffers | **tier 0** | MoltenVK must bind resources directly, with Metal's per-stage limits (about 31 textures and 16 samplers per stage on this GPU family; verify). Check the renderer's descriptor layout against these. |
+| Raster order groups | true | Makes VK_EXT_fragment_shader_interlock plausible through MoltenVK; verify in the MoltenVK feature report. |
+| 32-bit float filtering | false | Linear filtering of RGBA32F textures is unavailable; emulate or accept nearest. |
+| GPU family | apple5 (not apple6) | No apple6+ features. |
