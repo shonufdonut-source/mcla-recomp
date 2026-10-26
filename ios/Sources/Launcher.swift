@@ -1,5 +1,6 @@
 import GameController
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Settings the launcher passes to the game
 
@@ -416,7 +417,7 @@ final class SettingsViewController: UITableViewController {
     }
 
     @objc private func done() {
-        dismiss(animated: true) { [weak launcher] in launcher?.refresh() }
+        dismiss(animated: true) { [weak self] in self?.launcher?.refresh() }
     }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { rows.count }
@@ -608,7 +609,7 @@ final class GameFilesViewController: UITableViewController, UIDocumentPickerDele
     }
 
     @objc private func done() {
-        dismiss(animated: true) { [weak launcher] in launcher?.refresh() }
+        dismiss(animated: true) { [weak self] in self?.launcher?.refresh() }
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int { 2 }
