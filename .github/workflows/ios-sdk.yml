@@ -1,0 +1,82 @@
+name: iOS SDK build
+
+# Cross-compiles the ReXGlue SDK (v0.10.0, with this repo's patches) for iPadOS arm64.
+# Nothing here touches a game file or anything derived from one, so it is safe in a public repo.
+# It is a probe: it keeps going after errors (ninja -k 0) so one run lists everything that breaks.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-port]
+    paths: ["patches/**", "ios/sdk/**", ".github/workflows/ios-sdk.yml"]
+
+env:
+  SDK_TAG: v0.10.0
+  SDK_COMMIT: f5337cdc947ff6d4c4196737e2c807a48f2a1fc2
+
+jobs:
+  sdk:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone and patch the SDK
+        run: |
+          set -euo pipefail
+          git clone --recursive --branch "$SDK_TAG" https://github.com/rexglue/rexglue-sdk.git sdk
+          test "$(git -C sdk rev-parse HEAD)" = "$SDK_COMMIT"
+          git -C sdk apply "$GITHUB_WORKSPACE/patches/rexglue-v0.10.0-mcla.patch"
+          git -C sdk apply "$GITHUB_WORKSPACE/patches/rexglue-minmax-blend-factor.patch"
+          if [ -d ios/sdk/patches ]; then
+            for p in ios/sdk/patches/*.patch; do [ -e "$p" ] && git -C sdk apply "$GITHUB_WORKSPACE/$p"; done
+          fi
+          git -C sdk status --short | head -20
+
+      - name: Tool versions
+        run: |
+          xcodebuild -version
+          clang --version | head -1
+          cmake --version | head -1
+          ninja --version || brew install ninja
+
+      - name: Configure for iOS arm64
+        run: |
+          set -o pipefail
+          cmake -S sdk -B build -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+            -DCMAKE_CXX_STANDARD=23 \
+            -DREXGLUE_USE_VULKAN=ON -DREXGLUE_ENABLE_TRACY=OFF \
+            2>&1 | tee configure.log | tail -n 60
+
+      - name: Build (keep going after errors)
+        id: build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          cmake --build build -- -k 0 2>&1 | tee build.log | tail -n 5
+
+      - name: Summarize errors
+        if: always()
+        run: |
+          echo "failed compile steps:"; grep -c "^FAILED:" build.log || true
+          echo "--- first distinct errors"
+          grep -E "error:" build.log | sed -E 's#^.*/sdk/##' | sort | uniq -c | sort -rn | head -60 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-sdk-logs
+          path: |
+            configure.log
+            build.log
+            build/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: ignore
+
+      - name: Fail if the build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
