@@ -55,3 +55,10 @@ keys.*
 /scripts/smoke_run.ps1
 /scripts/sweep_stats.py
 /scripts/thread_profile.ps1
+
+# iOS build output
+/ios/build/
+/ios/*.xcodeproj/
+/ios/Payload/
+/ios/*.ipa
+/ios/xcodebuild.log

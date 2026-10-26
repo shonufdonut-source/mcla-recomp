@@ -1,0 +1,56 @@
+name: iOS skeleton IPA
+
+# Builds the M1 app skeleton only: no game code, no game data, nothing derived from
+# a game file. Safe to run in a public repository. The playable build (which links the
+# recompiled game) belongs in a private repository and is a separate workflow.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-port]
+    paths: ["ios/**", ".github/workflows/ios-skeleton.yml"]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build for device, unsigned
+        working-directory: ios
+        run: |
+          xcodebuild -project MCLA.xcodeproj -scheme MCLA -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log | tail -n 40
+
+      - name: Package unsigned IPA
+        working-directory: ios
+        run: |
+          APP=$(find build/Build/Products -maxdepth 2 -name 'MCLA.app' | head -n 1)
+          test -n "$APP"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry MCLA-unsigned.ipa Payload
+          ls -l MCLA-unsigned.ipa
+          file "Payload/MCLA.app/MCLA"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MCLA-skeleton-ipa
+          path: ios/MCLA-unsigned.ipa
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: xcodebuild-log
+          path: ios/xcodebuild.log
