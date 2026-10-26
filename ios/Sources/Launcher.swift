@@ -57,7 +57,7 @@ enum LaunchSettings {
         detail: "Brightens loading screens, menus, cutscenes and play alike. Normal is the game as shipped.",
         cvar: "display_gamma_boost",
         options: [("Normal", "1.0"), ("Brighter", "1.15"), ("Bright", "1.3"), ("Brightest", "1.5")],
-        defaultValue: "1.15")
+        defaultValue: "1.3")
 
     static let choices = [frameRate, resolution, brightness, intro]
     /// Not part of a preset: changing them keeps the preset selected.
@@ -81,8 +81,8 @@ enum LaunchSettings {
     /// at 16 bits per texel instead of 32 they take half the memory (SDK patch 09).
     static let smallTextures = LaunchToggle(
         key: "smallTextures", title: "Smaller textures (16-bit)",
-        detail: "Half the texture memory; colours have slightly fewer shades",
-        cvar: "texture_dxt_16bpp", defaultValue: true)
+        detail: "Experimental: about 200 MB less memory, but some textures show coloured blocks",
+        cvar: "texture_dxt_16bpp", defaultValue: false)
     static let memoryToggles = [memorySaver, smallTextures]
 
     static let toggles: [LaunchToggle] = [
@@ -156,7 +156,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "false", "mcla_depth_of_field": "false",
                               "mcla_msaa": "false", "mcla_city_lod": "0.5", "mcla_traffic_lod": "0.5",
                               "mcla_traffic_distance": "200", "mcla_pedestrians": "0.25",
-                              "mcla_parked_cars": "0.25", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
+                              "mcla_parked_cars": "0.25", memorySaverKey: "true", "texture_dxt_16bpp": "false"]),
         LaunchPreset(key: "low", title: "Low",
                      detail: "Simple car shadows, no blur, reduced distance and crowds. The starting point on this iPad.",
                      values: ["mcla_fps": "30", "resolution_scale": "1", "vsync": "true",
@@ -166,7 +166,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "false", "mcla_depth_of_field": "false",
                               "mcla_msaa": "false", "mcla_city_lod": "0.75", "mcla_traffic_lod": "0.75",
                               "mcla_traffic_distance": "300", "mcla_pedestrians": "0.5",
-                              "mcla_parked_cars": "0.5", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
+                              "mcla_parked_cars": "0.5", memorySaverKey: "true", "texture_dxt_16bpp": "false"]),
         LaunchPreset(key: "medium", title: "Medium",
                      detail: "Shadows in races, blur and motion blur on, most of the shipped distance and crowds.",
                      values: ["mcla_fps": "30", "resolution_scale": "1", "vsync": "true",
@@ -176,7 +176,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "true", "mcla_depth_of_field": "false",
                               "mcla_msaa": "false", "mcla_city_lod": "1.0", "mcla_traffic_lod": "1.0",
                               "mcla_traffic_distance": "350", "mcla_pedestrians": "0.75",
-                              "mcla_parked_cars": "0.75", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
+                              "mcla_parked_cars": "0.75", memorySaverKey: "true", "texture_dxt_16bpp": "false"]),
         LaunchPreset(key: "high", title: "High",
                      detail: "Everything as on the Xbox 360, at 60 fps. Likely too much for the A12X in the city.",
                      values: ["mcla_fps": "60", "resolution_scale": "1", "vsync": "true",
@@ -186,7 +186,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "true", "mcla_depth_of_field": "true",
                               "mcla_msaa": "false", "mcla_city_lod": "1.0", "mcla_traffic_lod": "1.0",
                               "mcla_traffic_distance": "400", "mcla_pedestrians": "1.0",
-                              "mcla_parked_cars": "1.0", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
+                              "mcla_parked_cars": "1.0", memorySaverKey: "true", "texture_dxt_16bpp": "false"]),
         LaunchPreset(key: "ultra", title: "Ultra",
                      detail: "Beyond the original: 1440p, MSAA, longer distances, full texture cache. Expect iOS to close the game on a 4 GB iPad.",
                      values: ["mcla_fps": "60", "resolution_scale": "2", "vsync": "true",

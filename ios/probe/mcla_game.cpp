@@ -32,7 +32,9 @@ extern "C" void mcla_game_set_option(const char* name, const char* value) {
 #if MCLA_HAS_GAME
 
 #include <rex/cvar.h>
+#include <rex/graphics/gpu_stats.h>
 #include <rex/graphics/graphics_system.h>
+#include <rex/graphics/pipeline/texture/info.h>
 #include <rex/image_info.h>
 #include <rex/input/device_assignment.h>
 #include <rex/input/input_system.h>
@@ -45,6 +47,8 @@ extern "C" void mcla_game_set_option(const char* name, const char* value) {
 #include <rex/system/util/object_table.h>
 #include <rex/system/xthread.h>
 #include <rex/ui/presenter.h>
+#include <rex/ui/vulkan/device.h>
+#include <rex/ui/vulkan/provider.h>
 
 // Only for SDL_SetMainReady: without SDL_MAIN_HANDLED this header would define main() on iOS,
 // which belongs to the Swift app.
@@ -58,9 +62,11 @@ extern "C" void mcla_game_set_option(const char* name, const char* value) {
 #include <os/proc.h>
 #include <pthread.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <unordered_map>
 #include <filesystem>
 #include <mutex>
 #include <string>
@@ -68,6 +74,34 @@ extern "C" void mcla_game_set_option(const char* name, const char* value) {
 
 // Metal's C entry point; the device it returns is the one MoltenVK renders with.
 extern "C" void* MTLCreateSystemDefaultDevice(void);
+
+// The Vulkan backend's running totals (graphics/vulkan/command_processor.cpp): draws, draws
+// that reached the host, and {submits, submit us, blocking fence waits, wait us}.
+namespace rex::graphics::vulkan {
+uint64_t DrawCounter();
+uint64_t HostDrawCounter();
+void SubmissionCounters(uint64_t out[4]);
+}  // namespace rex::graphics::vulkan
+
+// MoltenVK's performance tracker (MVK_CONFIG_PERFORMANCE_TRACKING), laid out as
+// MoltenVK/API/mvk_private_api.h at the SDK's MoltenVK commit (MVK_PRIVATE_API_VERSION 43).
+// MoltenVK reports the size it expects, and the statistics are only read when it matches.
+struct MvkTracker {
+  uint32_t count;
+  double latest, previous, average, minimum, maximum;
+};
+struct MvkPerformanceStatistics {
+  MvkTracker hash_shader_code, spirv_to_msl, msl_compile, msl_load, msl_compress, msl_decompress,
+      shader_library_from_cache, function_retrieval, function_specialization, pipeline_compile,
+      glsl_to_spirv;
+  MvkTracker size_pipeline_cache, write_pipeline_cache, read_pipeline_cache;
+  MvkTracker retrieve_command_buffer, command_buffer_encoding, wait_submit_command_buffers,
+      submit_command_buffers, command_buffer_execution, retrieve_drawable,
+      wait_present_swapchains, present_swapchains, frame_interval;
+  MvkTracker gpu_memory_allocated;
+};
+extern "C" VkResult vkGetPerformanceStatisticsMVK(VkDevice device, MvkPerformanceStatistics* perf,
+                                                  size_t* perf_size);
 
 // generated/default/mcla_init.cpp
 extern const rex::PPCImageInfo PPCImageConfig;
@@ -244,6 +278,180 @@ void WatchMainThread() {
   }
 }
 
+// Where each frame's time goes, between two 5-second reports. Three views:
+//   frame work: the Vulkan backend's own counters, per frame shown on screen;
+//   Metal: MoltenVK's tracker - GPU run time of each command buffer, encoding, shader compiles;
+//   cpu: the busiest threads, so a CPU-bound thread (the GPU command thread translating the
+//        game's commands, a guest thread) shows next to a GPU-bound frame.
+struct FrameWorkSample {
+  uint64_t draws = 0, host_draws = 0;
+  // SDK patch 11 (gpu_stats.h): texture loads, resolves, render target transfers so far.
+  int64_t texture_loads = 0, resolves = 0, transfers = 0;
+  uint64_t submissions[4] = {};
+  MvkPerformanceStatistics mvk{};
+  bool mvk_valid = false;
+  // Thread id -> CPU time so far (us), and the thread's name.
+  std::unordered_map<uint64_t, std::pair<uint64_t, std::string>> threads;
+};
+FrameWorkSample g_last_work;
+
+VkDevice GameVkDevice() {
+  auto* graphics = g_game && g_game->runtime ? g_game->runtime->graphics_system() : nullptr;
+  auto* provider =
+      graphics ? static_cast<rex::ui::vulkan::VulkanProvider*>(graphics->provider()) : nullptr;
+  return provider && provider->vulkan_device() ? provider->vulkan_device()->device()
+                                               : VK_NULL_HANDLE;
+}
+
+void SampleThreads(FrameWorkSample& sample) {
+  thread_act_array_t threads = nullptr;
+  mach_msg_type_number_t thread_count = 0;
+  if (task_threads(mach_task_self(), &threads, &thread_count) != KERN_SUCCESS) return;
+  for (mach_msg_type_number_t i = 0; i < thread_count; ++i) {
+    // Both from the kernel through the thread's port, so a thread that ends meanwhile only fails
+    // the call (its pthread name through pthread_getname_np could be freed memory by then).
+    thread_extended_info_data_t extended{};
+    mach_msg_type_number_t extended_count = THREAD_EXTENDED_INFO_COUNT;
+    thread_identifier_info_data_t ident{};
+    mach_msg_type_number_t ident_count = THREAD_IDENTIFIER_INFO_COUNT;
+    if (thread_info(threads[i], THREAD_EXTENDED_INFO, reinterpret_cast<thread_info_t>(&extended),
+                    &extended_count) == KERN_SUCCESS &&
+        thread_info(threads[i], THREAD_IDENTIFIER_INFO, reinterpret_cast<thread_info_t>(&ident),
+                    &ident_count) == KERN_SUCCESS) {
+      const uint64_t cpu_us = (extended.pth_user_time + extended.pth_system_time) / 1000u;
+      extended.pth_name[sizeof(extended.pth_name) - 1] = '\0';
+      sample.threads[ident.thread_id] = {cpu_us,
+                                         extended.pth_name[0] ? extended.pth_name : "unnamed"};
+    }
+    mach_port_deallocate(mach_task_self(), threads[i]);
+  }
+  vm_deallocate(mach_task_self(), reinterpret_cast<vm_address_t>(threads),
+                thread_count * sizeof(thread_act_t));
+}
+
+FrameWorkSample TakeFrameWorkSample() {
+  FrameWorkSample sample;
+  sample.draws = rex::graphics::vulkan::DrawCounter();
+  sample.host_draws = rex::graphics::vulkan::HostDrawCounter();
+  rex::graphics::vulkan::SubmissionCounters(sample.submissions);
+  namespace stats = rex::graphics::stats;
+  sample.texture_loads = stats::Get(stats::kTextureLoads);
+  sample.resolves = stats::Get(stats::kResolves);
+  sample.transfers = stats::Get(stats::kRenderTargetTransfers);
+  if (VkDevice device = GameVkDevice()) {
+    size_t expected = 0;
+    vkGetPerformanceStatisticsMVK(device, nullptr, &expected);
+    if (expected == sizeof(sample.mvk)) {
+      size_t size = sizeof(sample.mvk);
+      sample.mvk_valid = vkGetPerformanceStatisticsMVK(device, &sample.mvk, &size) == VK_SUCCESS;
+    } else {
+      static bool reported = false;
+      if (!reported) {
+        reported = true;
+        P("Metal: MoltenVK statistics are %zu bytes, this build expects %zu; not read", expected,
+          sizeof(sample.mvk));
+      }
+    }
+  }
+  SampleThreads(sample);
+  return sample;
+}
+
+// Activities and their average duration between two samples (MoltenVK keeps lifetime averages).
+struct TrackerDelta {
+  uint32_t count;
+  double average_ms;
+};
+TrackerDelta Delta(const MvkTracker& before, const MvkTracker& after) {
+  const uint32_t count = after.count - before.count;
+  if (count == 0) return {0, 0.0};
+  return {count, (after.average * after.count - before.average * before.count) / count};
+}
+
+void LogFrameWork(const FrameWorkSample& before, const FrameWorkSample& after, double seconds,
+                  uint64_t frames) {
+  const double per_frame = frames ? 1.0 / double(frames) : 0.0;
+  const uint64_t submits = after.submissions[0] - before.submissions[0];
+  const uint64_t waits = after.submissions[2] - before.submissions[2];
+  P("frame work: %llu frames; per frame %.0f draws (%.0f reached the GPU), %.1f submits "
+    "(%.1f ms CPU), %.1f blocking GPU waits (%.1f ms)",
+    static_cast<unsigned long long>(frames), double(after.draws - before.draws) * per_frame,
+    double(after.host_draws - before.host_draws) * per_frame, double(submits) * per_frame,
+    double(after.submissions[1] - before.submissions[1]) / 1000.0 * per_frame,
+    double(waits) * per_frame,
+    double(after.submissions[3] - before.submissions[3]) / 1000.0 * per_frame);
+  P("frame work: per frame %.1f texture loads, %.1f resolves (EDRAM copies), %.1f render "
+    "target transfers",
+    double(after.texture_loads - before.texture_loads) * per_frame,
+    double(after.resolves - before.resolves) * per_frame,
+    double(after.transfers - before.transfers) * per_frame);
+  // What the GPU memory holds (the rest of "GPU allocations" is the 512 MB guest memory buffer,
+  // the EDRAM buffer, upload buffers and MoltenVK's own).
+  namespace stats = rex::graphics::stats;
+  constexpr double kMB = 1024.0 * 1024.0;
+  P("gpu memory: textures %.0f MB in %lld (allocator holds %.0f MB in %lld blocks, %.0f MB used), "
+    "render targets %.0f MB in %lld",
+    double(stats::Get(stats::kTextureBytes)) / kMB,
+    static_cast<long long>(stats::Get(stats::kTextureCount)),
+    double(stats::Get(stats::kTextureAllocatorBlockBytes)) / kMB,
+    static_cast<long long>(stats::Get(stats::kTextureAllocatorBlocks)),
+    double(stats::Get(stats::kTextureAllocatorAllocationBytes)) / kMB,
+    double(stats::Get(stats::kRenderTargetBytes)) / kMB,
+    static_cast<long long>(stats::Get(stats::kRenderTargetCount)));
+  // The six guest texture formats taking the most memory.
+  std::vector<std::pair<int64_t, uint32_t>> formats;
+  for (uint32_t format = 0; format < 64; ++format) {
+    const int64_t bytes = stats::texture_format_bytes[format].load(std::memory_order_relaxed);
+    if (bytes > 0) formats.emplace_back(bytes, format);
+  }
+  std::sort(formats.begin(), formats.end(), [](const auto& a, const auto& b) { return a > b; });
+  std::string by_format = "gpu memory by texture format:";
+  for (size_t i = 0; i < formats.size() && i < 6; ++i) {
+    const auto* info = rex::graphics::FormatInfo::Get(formats[i].second);
+    char part[96];
+    snprintf(part, sizeof(part), "%s %s %.0f MB (%lld)", i ? "," : "",
+             info && info->name ? info->name : "?", double(formats[i].first) / kMB,
+             static_cast<long long>(
+                 stats::texture_format_count[formats[i].second].load(std::memory_order_relaxed)));
+    by_format += part;
+  }
+  P("%s", by_format.c_str());
+  if (before.mvk_valid && after.mvk_valid) {
+    const TrackerDelta run = Delta(before.mvk.command_buffer_execution,
+                                   after.mvk.command_buffer_execution);
+    const TrackerDelta encode = Delta(before.mvk.command_buffer_encoding,
+                                      after.mvk.command_buffer_encoding);
+    const TrackerDelta msl = Delta(before.mvk.msl_compile, after.mvk.msl_compile);
+    const TrackerDelta pipelines = Delta(before.mvk.pipeline_compile, after.mvk.pipeline_compile);
+    const TrackerDelta drawable = Delta(before.mvk.retrieve_drawable, after.mvk.retrieve_drawable);
+    // GPU busy: the summed run time of the command buffers over the wall time (it can pass 100%
+    // when the GPU overlaps them).
+    P("Metal: %.1f command buffers per frame, GPU run %.1f ms each (GPU busy %.0f%%), "
+      "encoding %.1f ms each; drawable wait %.1f ms; compiled %u shaders (%.0f ms each), "
+      "%u pipelines (%.0f ms each); GPU memory %.0f MB",
+      double(run.count) * per_frame, run.average_ms,
+      seconds > 0 ? run.average_ms * run.count / (seconds * 10.0) : 0.0, encode.average_ms,
+      drawable.average_ms, msl.count, msl.average_ms, pipelines.count, pipelines.average_ms,
+      after.mvk.gpu_memory_allocated.latest / 1024.0);
+  }
+  // The five busiest threads over the interval.
+  std::vector<std::pair<double, std::string>> busy;
+  for (const auto& [id, now] : after.threads) {
+    auto it = before.threads.find(id);
+    const uint64_t used_us = now.first - (it != before.threads.end() ? it->second.first : 0);
+    if (seconds > 0) busy.emplace_back(double(used_us) / (seconds * 10000.0), now.second);
+  }
+  std::sort(busy.begin(), busy.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+  std::string line = "cpu:";
+  for (size_t i = 0; i < busy.size() && i < 5; ++i) {
+    char part[96];
+    snprintf(part, sizeof(part), "%s %s %.0f%%", i ? "," : "", busy[i].second.c_str(),
+             busy[i].first);
+    line += part;
+  }
+  P("%s", line.c_str());
+}
+
 // What the shader storage holds: if a second run lists the same files and still creates as many
 // pipelines, the storage is written but not used; if the folder stays empty, it is not written.
 void ListCache(const char* when) {
@@ -335,6 +543,9 @@ extern "C" int mcla_game_start(const void* metal_layer, unsigned width_px, unsig
     // Presentation first, as the desktop host does: the graphics system has to know it will
     // present before the runtime wires it to the guest.
     g_game->context = std::make_unique<IOSAppContext>();
+    // MoltenVK reads its configuration when the Vulkan instance is created: time each Metal
+    // command buffer on the GPU and each shader compile, for the "Metal:" log lines.
+    setenv("MVK_CONFIG_PERFORMANCE_TRACKING", "1", 1);
     NEXT("create the Xenos graphics system (Vulkan backend, MoltenVK)");
     rex::system::GpuCreateInfo gpu_create_info;
     gpu_create_info.struct_size = sizeof gpu_create_info;
@@ -435,6 +646,7 @@ extern "C" int mcla_game_start(const void* metal_layer, unsigned width_px, unsig
   g_game->main_thread->Resume();
   g_game->resumed_at = std::chrono::steady_clock::now();
   g_game->last_report_at = g_game->resumed_at;
+  g_last_work = TakeFrameWorkSample();
   P("PASS main guest thread resumed%s", stage >= 5 ? " (with graphics)" : " (no graphics: the "
     "game is expected to stop at its video setup)");
   // mcla_game_start runs on the main thread.
@@ -465,9 +677,13 @@ extern "C" void mcla_game_tick(void) {
     P("display: %.1f fps over the last %.0f s (presenter paints)",
       seconds > 0 ? static_cast<double>(paints - g_game->paints_at_last_report) / seconds : 0.0,
       seconds);
+    const uint64_t frames = paints - g_game->paints_at_last_report;
     g_game->paints_at_last_report = paints;
     g_game->last_report_at = now;
     LogMemory();
+    FrameWorkSample work = TakeFrameWorkSample();
+    LogFrameWork(g_last_work, work, seconds, frames);
+    g_last_work = std::move(work);
   }
   if (g_game->window && (second == 60 || second == 300)) ListCache("now");
   // Twice, a few seconds apart: which threads exist, and whether the set changes.

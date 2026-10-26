@@ -52,6 +52,21 @@ final class Log {
     }
 
     var text: String { queue.sync { lines.joined(separator: "\n") } }
+
+    /// Copies of the logs in the temporary folder, for the share sheet. Shared straight from
+    /// Documents (which the Files app shows), the sheet asks the file provider about each file
+    /// on the main thread, which once took over 10 s and iOS's watchdog closed the app.
+    func shareableCopies() -> [URL] {
+        let fm = FileManager.default
+        let dir = fm.temporaryDirectory.appendingPathComponent("shared-logs", isDirectory: true)
+        try? fm.removeItem(at: dir)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return [fileURL, previousURL].compactMap { source in
+            guard fm.fileExists(atPath: source.path) else { return nil }
+            let copy = dir.appendingPathComponent(source.lastPathComponent)
+            return (try? fm.copyItem(at: source, to: copy)) != nil ? copy : nil
+        }
+    }
 }
 
 func log(_ message: String) { Log.shared.write(message) }

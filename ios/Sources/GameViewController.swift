@@ -142,11 +142,8 @@ final class GameViewController: UIViewController {
     }
 
     @objc private func shareLog(_ sender: UIButton) {
-        var items: [Any] = [Log.shared.fileURL]
-        if FileManager.default.fileExists(atPath: Log.shared.previousURL.path) {
-            items.append(Log.shared.previousURL)
-        }
-        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let vc = UIActivityViewController(activityItems: Log.shared.shareableCopies(),
+                                          applicationActivities: nil)
         vc.popoverPresentationController?.sourceView = sender
         present(vc, animated: true)
     }

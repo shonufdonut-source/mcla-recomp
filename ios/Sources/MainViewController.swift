@@ -112,11 +112,8 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
     }
 
     @objc private func shareLog() {
-        var items: [Any] = [Log.shared.fileURL]
-        if FileManager.default.fileExists(atPath: Log.shared.previousURL.path) {
-            items.append(Log.shared.previousURL)
-        }
-        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let vc = UIActivityViewController(activityItems: Log.shared.shareableCopies(),
+                                          applicationActivities: nil)
         vc.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItems?.first
         present(vc, animated: true)
     }

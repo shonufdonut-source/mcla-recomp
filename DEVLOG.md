@@ -155,3 +155,27 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   Notes: `tailscale serve` of a folder needs Windows admin; it answers by tailnet name, not by IP; Git Bash
   rewrites `/path` arguments (MSYS_NO_PATHCONV).
 - [assumed] Everything past the public build: private build time, link, and any stage on the iPad.
+
+## 2026-10-26: The game runs on the iPad (0.3.0 builds)
+
+- [device] Stage 5 plays: title screen at 30 fps (58.8 at 60), Xbox controller through GameController
+  (Start registered), audio 6 ch, map zoom-out, the first mission's cutscene, car selection and free driving
+  in the city with correct lighting, HUD and traffic (owner's screen recording, 00:36). No crash in the
+  game itself in the last runs; sessions end when iOS closes the app for memory or the owner closes it.
+- [device] City frame rate 2-11 fps on every preset (Minimal 2-11, Low 2-5); title screen 30 fps. The GPU
+  is the limit: every main-thread freeze (2-23 s) is the presenter waiting on a fence for earlier GPU work.
+- [device] Memory: ~1.1 GB on the title screen, 2.3-2.8 GB in the city, of which 1.6-2.0 GB are GPU
+  allocations (Metal currentAllocatedSize). iOS's limit for the app is ~2.86 GB; jetsam closed the app at
+  2.63 GB (vm-pageshortage) with 16-bit textures off.
+- [device] SDK patch 08 (shader storage read from the start): the shader cache survives restarts and grows
+  (130 -> 277 KB, 172 -> 684 pipelines loaded at start). Stalls from new shaders drop on later runs, but the
+  city frame rate does not: shader building is not the main cost.
+- [device] Patch 09 (DXT to 16 bpp): active (R5G5B5A1 / R4G4B4A4), saves ~200 MB at most, and some textures
+  show coloured block noise (car rear, HUD odometer). Off by default until fixed.
+- [device] Patch 10 (gamma ramp boost): works on every screen; the owner prefers 1.3 (Bright), now default.
+- [device] Leaving the app pauses graphics in 0.2-0.8 s with no lost device. The share sheet blocked the
+  main thread >10 s once (file provider lookup of the logs in Documents) and iOS's watchdog closed the app;
+  logs are now shared from temporary copies.
+- Next build measures before fixing: per-frame draws, submits, GPU waits, texture loads, resolves, render
+  target transfers; MoltenVK GPU time per command buffer and shader compile times; busiest CPU threads;
+  GPU memory split into textures (by format, and what the allocator holds), render targets and the rest.

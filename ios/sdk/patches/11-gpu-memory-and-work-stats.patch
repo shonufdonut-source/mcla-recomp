@@ -1,0 +1,206 @@
+diff --git a/include/rex/graphics/gpu_stats.h b/include/rex/graphics/gpu_stats.h
+new file mode 100644
+index 0000000..da707b7
+--- /dev/null
++++ b/include/rex/graphics/gpu_stats.h
+@@ -0,0 +1,42 @@
++// Running totals of GPU memory and per-frame work, for hosts to log (the MCLA iOS port reads them
++// every 5 seconds). Inline variables: one instance shared by the SDK and the host.
++#pragma once
++
++#include <atomic>
++#include <cstdint>
++
++namespace rex::graphics::stats {
++
++enum Counter : int {
++  // Host memory of the cached textures, as the texture cache counts it, and how many.
++  kTextureBytes,
++  kTextureCount,
++  // What the texture cache's memory allocator holds: its blocks, and what is allocated in them.
++  kTextureAllocatorBlockBytes,
++  kTextureAllocatorAllocationBytes,
++  kTextureAllocatorBlocks,
++  // Render target images (each its own allocation) and how many.
++  kRenderTargetBytes,
++  kRenderTargetCount,
++  // Work so far: texture data loads (each a compute dispatch), resolves (EDRAM to memory copies),
++  // render target ownership transfers (copies between render targets sharing EDRAM).
++  kTextureLoads,
++  kResolves,
++  kRenderTargetTransfers,
++  kCounterCount,
++};
++
++inline std::atomic<int64_t> counters[kCounterCount];
++// Per guest texture format (xenos::TextureFormat, 64 values): host bytes and texture count.
++inline std::atomic<int64_t> texture_format_bytes[64];
++inline std::atomic<int64_t> texture_format_count[64];
++
++inline void Add(Counter counter, int64_t value) {
++  counters[counter].fetch_add(value, std::memory_order_relaxed);
++}
++inline void Set(Counter counter, int64_t value) {
++  counters[counter].store(value, std::memory_order_relaxed);
++}
++inline int64_t Get(Counter counter) { return counters[counter].load(std::memory_order_relaxed); }
++
++}  // namespace rex::graphics::stats
+diff --git a/include/rex/graphics/pipeline/texture/cache.h b/include/rex/graphics/pipeline/texture/cache.h
+index 9028a82..0042771 100644
+--- a/include/rex/graphics/pipeline/texture/cache.h
++++ b/include/rex/graphics/pipeline/texture/cache.h
+@@ -13,6 +13,8 @@
+ #include <array>
+ #include <atomic>
+ #include <cstdint>
++
++#include <rex/graphics/gpu_stats.h>
+ #include <cstring>
+ #include <memory>
+ #include <unordered_map>
+@@ -244,6 +246,8 @@ class TextureCache {
+ 
+     void SetHostMemoryUsage(uint64_t new_host_memory_usage) {
+       texture_cache_.UpdateTexturesTotalHostMemoryUsage(new_host_memory_usage, host_memory_usage_);
++      stats::texture_format_bytes[uint32_t(key_.format) & 63].fetch_add(
++          int64_t(new_host_memory_usage) - int64_t(host_memory_usage_), std::memory_order_relaxed);
+       host_memory_usage_ = new_host_memory_usage;
+     }
+ 
+diff --git a/include/rex/graphics/vulkan/texture_cache.h b/include/rex/graphics/vulkan/texture_cache.h
+index 04856ee..0dd8d75 100644
+--- a/include/rex/graphics/vulkan/texture_cache.h
++++ b/include/rex/graphics/vulkan/texture_cache.h
+@@ -348,6 +348,8 @@ class VulkanTextureCache final : public TextureCache {
+ 
+   VkPipelineLayout load_pipeline_layout_ = VK_NULL_HANDLE;
+   std::array<VkPipeline, kLoadShaderCount> load_pipelines_{};
++  // BeginFrame calls, to take the allocator's totals every 32 frames (gpu_stats.h).
++  uint32_t stats_frame_ = 0;
+   std::array<VkPipeline, kLoadShaderCount> load_pipelines_scaled_{};
+ 
+   // If both images can be placed in the same allocation, it's one allocation,
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 6a63ec0..5007076 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -660,6 +660,9 @@ TextureCache::Texture::Texture(TextureCache& texture_cache, const TextureKey& ke
+     texture_cache.texture_used_last_ = this;
+   }
+ 
++  stats::Add(stats::kTextureCount, 1);
++  stats::texture_format_count[uint32_t(key_.format) & 63].fetch_add(1, std::memory_order_relaxed);
++
+   // Never try to upload data that doesn't exist.
+   base_outdated_ = guest_layout().base.level_data_extent_bytes != 0;
+   mips_outdated_ = guest_layout().mips_total_extent_bytes != 0;
+@@ -669,6 +672,10 @@ TextureCache::Texture::Texture(TextureCache& texture_cache, const TextureKey& ke
+ }
+ 
+ TextureCache::Texture::~Texture() {
++  stats::Add(stats::kTextureCount, -1);
++  stats::texture_format_count[uint32_t(key_.format) & 63].fetch_sub(1, std::memory_order_relaxed);
++  stats::texture_format_bytes[uint32_t(key_.format) & 63].fetch_sub(int64_t(host_memory_usage_),
++                                                                    std::memory_order_relaxed);
+   if (mips_watch_handle_) {
+     texture_cache().shared_memory().UnwatchMemoryRange(mips_watch_handle_);
+   }
+@@ -1015,6 +1022,7 @@ void TextureCache::ResetTextureBindings(bool from_destructor) {
+ 
+ void TextureCache::UpdateTexturesTotalHostMemoryUsage(uint64_t add, uint64_t subtract) {
+   textures_total_host_memory_usage_ = textures_total_host_memory_usage_ - subtract + add;
++  stats::Set(stats::kTextureBytes, int64_t(textures_total_host_memory_usage_));
+   COUNT_profile_set(
+       "gpu/texture_cache/total_host_memory_usage_mb",
+       uint32_t((textures_total_host_memory_usage_ + ((UINT32_C(1) << 20) - 1)) >> 20));
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 0298f06..b2e9ce1 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -12,6 +12,8 @@
+ #include <algorithm>
+ #include <array>
+ #include <cstddef>
++
++#include <rex/graphics/gpu_stats.h>
+ #include <cstdint>
+ #include <cstring>
+ #include <memory>
+@@ -1130,6 +1132,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
+                                       uint32_t& written_address_out, uint32_t& written_length_out) {
+   written_address_out = 0;
+   written_length_out = 0;
++  stats::Add(stats::kResolves, 1);
+ 
+   bool draw_resolution_scaled = IsDrawResolutionScaled();
+ 
+@@ -1840,6 +1843,10 @@ VulkanRenderTargetCache::VulkanRenderTarget::~VulkanRenderTarget() {
+     dfn.vkDestroyImageView(device, view_depth_stencil_, nullptr);
+   }
+   dfn.vkDestroyImageView(device, view_depth_color_, nullptr);
++  VkMemoryRequirements memory_requirements;
++  dfn.vkGetImageMemoryRequirements(device, image_, &memory_requirements);
++  stats::Add(stats::kRenderTargetBytes, -int64_t(memory_requirements.size));
++  stats::Add(stats::kRenderTargetCount, -1);
+   dfn.vkDestroyImage(device, image_, nullptr);
+   dfn.vkFreeMemory(device, memory_, nullptr);
+ }
+@@ -1918,6 +1925,13 @@ RenderTargetCache::RenderTarget* VulkanRenderTargetCache::CreateRenderTarget(Ren
+         uint32_t(1) << uint32_t(key.msaa_samples), key.GetFormatName());
+     return nullptr;
+   }
++  {
++    VkMemoryRequirements memory_requirements;
++    vulkan_device->functions().vkGetImageMemoryRequirements(vulkan_device->device(), image,
++                                                            &memory_requirements);
++    stats::Add(stats::kRenderTargetBytes, int64_t(memory_requirements.size));
++    stats::Add(stats::kRenderTargetCount, 1);
++  }
+ 
+   // Create the image views.
+ 
+@@ -4552,6 +4566,13 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
+     const uint64_t* render_target_resolve_clear_values,
+     const Transfer::Rectangle* resolve_clear_rectangle) {
+   assert_true(GetPath() == Path::kHostRenderTargets);
++  if (render_target_transfers) {
++    int64_t transfers = 0;
++    for (uint32_t i = 0; i < render_target_count; ++i) {
++      transfers += int64_t(render_target_transfers[i].size());
++    }
++    stats::Add(stats::kRenderTargetTransfers, transfers);
++  }
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+   uint64_t current_submission = command_processor_.GetCurrentSubmission();
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 0f3ac26..5c1e72d 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -536,6 +536,17 @@ void VulkanTextureCache::BeginSubmission(uint64_t new_submission_index) {
+ void VulkanTextureCache::BeginFrame() {
+   TextureCache::BeginFrame();
+ 
++  // The allocator is externally synchronized (this thread), so its totals are taken here, now
++  // and then, for hosts to read.
++  if (vma_allocator_ != VK_NULL_HANDLE && (++stats_frame_ & 31) == 0) {
++    VmaTotalStatistics vma_stats;
++    vmaCalculateStatistics(vma_allocator_, &vma_stats);
++    stats::Set(stats::kTextureAllocatorBlockBytes, int64_t(vma_stats.total.statistics.blockBytes));
++    stats::Set(stats::kTextureAllocatorAllocationBytes,
++               int64_t(vma_stats.total.statistics.allocationBytes));
++    stats::Set(stats::kTextureAllocatorBlocks, int64_t(vma_stats.total.statistics.blockCount));
++  }
++
+   std::memset(unsupported_format_features_used_, 0, sizeof(unsupported_format_features_used_));
+ }
+ 
+@@ -1225,6 +1236,7 @@ bool VulkanTextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
+                                                                bool load_mips) {
+   VulkanTexture& vulkan_texture = static_cast<VulkanTexture&>(texture);
+   TextureKey texture_key = vulkan_texture.key();
++  stats::Add(stats::kTextureLoads, 1);
+ 
+   // Get the pipeline.
+   const HostFormatPair& host_format_pair = GetHostFormatPair(texture_key);

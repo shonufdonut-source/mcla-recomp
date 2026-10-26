@@ -55,6 +55,17 @@ jobs:
             cp "$f" ios/probe-lib/
           done
           ls -l ios/probe-lib
+          # The game host is only compiled here, never linked (that needs the game). Check that
+          # the SDK and MoltenVK functions it calls exist in the built libraries, so a missing one
+          # fails here and not in the private build.
+          mvk=$(find probe-build sdk/out sdk/thirdparty -name "libMoltenVK*.a" 2>/dev/null | head -n 1)
+          test -n "$mvk" || { echo "libMoltenVK.a not found"; exit 1; }
+          check() { nm -gU "$1" 2>/dev/null | c++filt | grep -qF "$2" || { echo "missing in $(basename "$1"): $2"; exit 1; }; echo "ok: $2"; }
+          check "$mvk" "vkGetPerformanceStatisticsMVK"
+          check ios/probe-lib/librexgpu-xenos.a "rex::graphics::vulkan::DrawCounter()"
+          check ios/probe-lib/librexgpu-xenos.a "rex::graphics::vulkan::HostDrawCounter()"
+          check ios/probe-lib/librexgpu-xenos.a "rex::graphics::vulkan::SubmissionCounters("
+          check ios/probe-lib/librexgpu-xenos.a "rex::graphics::FormatInfo::Get(unsigned int)"
 
       - name: Generate Xcode project
         working-directory: ios
