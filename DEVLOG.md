@@ -15,3 +15,14 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
 ## Not working / unknown
 
 - Everything iOS. No iOS target exists yet.
+
+## 2026-10-25: M1a skeleton app and CI
+
+- [read] Decision: private-repo build for the playable app (game-derived code stays in the private repo's runner
+  and artifact). Public fork holds code only.
+- [CI] `ios/` skeleton builds on a macos-15 runner and produces `MCLA-unsigned.ipa` with an arm64 Mach-O
+  executable (157 KB). First run reported success but had a compile error hidden by a pipe; fixed with
+  `pipefail` and an executable check, second run is genuine.
+- [assumed] App launches, log viewer, folder picker and device report work. **Not run on the iPad yet.**
+- Next: iPad test of M1a (see `ios/README.md`), then M1b: private repo, link the SDK and recompiled code,
+  reach the entry point.
