@@ -1,0 +1,12 @@
+--- a/cmake/rexglue_install.cmake
++++ b/cmake/rexglue_install.cmake
+@@ -137,7 +137,8 @@
+     )
+ endif()
+ 
+-if(APPLE AND REXGLUE_USE_VULKAN)
++# iOS links MoltenVK statically into the app; there is no loader or ICD to install.
++if(APPLE AND NOT IOS AND REXGLUE_USE_VULKAN)
+     install(FILES "$<TARGET_FILE:Vulkan::Loader>"
+         DESTINATION ${CMAKE_INSTALL_LIBDIR}
+         CONFIGURATIONS Release
