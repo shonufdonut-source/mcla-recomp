@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 namespace mcla_ios {
 
@@ -33,11 +34,27 @@ inline void P(const char* fmt, ...) {
   if (g_log) g_log(buf);
 }
 
-// SDK log lines go to the app log too, so its own errors show up there.
+// SDK log lines go to the app log too, so its own errors show up there. A line that repeats
+// word for word (MoltenVK warns on every bind of some pipelines) is shown three times, then
+// only as a count every 1000 repeats. The sink's mutex guards the table.
 inline spdlog::sink_ptr MakeSdkLogSink() {
   return std::make_shared<spdlog::sinks::callback_sink_mt>([](const spdlog::details::log_msg& msg) {
+    static std::unordered_map<std::string, uint32_t> repeats;
     std::string text(msg.payload.data(), msg.payload.size());
-    P("  [sdk %s] %s", spdlog::level::to_short_c_str(msg.level), text.c_str());
+    const char* level = spdlog::level::to_short_c_str(msg.level);
+    if (msg.level >= spdlog::level::warn) {
+      if (repeats.size() > 4096) repeats.clear();
+      const uint32_t count = ++repeats[text];
+      if (count == 3) {
+        P("  [sdk %s] %s (repeats are counted from here)", level, text.c_str());
+        return;
+      }
+      if (count > 3) {
+        if (count % 1000 == 0) P("  [sdk %s] seen %u times: %s", level, count, text.c_str());
+        return;
+      }
+    }
+    P("  [sdk %s] %s", level, text.c_str());
   });
 }
 
@@ -94,10 +111,17 @@ class IOSWindow final : public rex::ui::Window {
     app_context().CallInUIThreadDeferred([this] {
       paint_pending_ = false;
       OnPaint();
+      ++paints_;
     });
   }
 
+ public:
+  // Presenter paints so far: each one shows the newest guest frame, so paints per second is
+  // the frame rate on screen.
+  uint64_t paints() const { return paints_.load(); }
+
  private:
+  std::atomic<uint64_t> paints_{0};
   const void* layer_;
   uint32_t width_, height_;
   std::atomic<bool> paint_pending_{false};

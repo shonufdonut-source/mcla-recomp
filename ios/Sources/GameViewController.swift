@@ -10,7 +10,11 @@ enum GameFolder {
     static func locate() -> URL? {
         let fm = FileManager.default
         let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        for candidate in [docs.appendingPathComponent("game"), docs] {
+        // The iPad's file system is case-sensitive; accept "Game" or "GAME" for the folder too.
+        let named = ((try? fm.contentsOfDirectory(atPath: docs.path)) ?? [])
+            .filter { $0.lowercased() == "game" }
+            .map { docs.appendingPathComponent($0, isDirectory: true) }
+        for candidate in named + [docs] {
             if fm.fileExists(atPath: candidate.appendingPathComponent("default.xex").path) { return candidate }
         }
         guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
@@ -85,9 +89,19 @@ final class GameViewController: UIViewController {
         log("game: start returned \(result); tap Share log")
         metalView.onDrawableSizeChange = { w, h in mcla_game_resize(w, h) }
         displayLink = makeDisplayLink(target: self, selector: #selector(tick))
+        NotificationCenter.default.addObserver(self, selector: #selector(thermalChanged),
+                                               name: ProcessInfo.thermalStateDidChangeNotification, object: nil)
+        thermalChanged()
     }
 
     @objc private func tick() { mcla_game_tick() }
+
+    /// A hot iPad slows itself down, so heat changes go in the log next to the frame rate.
+    @objc private func thermalChanged() {
+        let names = ["nominal", "fair", "serious", "critical"]
+        let state = ProcessInfo.processInfo.thermalState.rawValue
+        log("thermal state: \(state) (\(state < names.count ? names[state] : "unknown"))")
+    }
 
     @objc private func shareLog(_ sender: UIButton) {
         var items: [Any] = [Log.shared.fileURL]

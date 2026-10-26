@@ -18,8 +18,10 @@ add_subdirectory(${REXGLUE_SDK_DIR} rexglue EXCLUDE_FROM_ALL)
 
 # rexruntime (static on iOS, SDK patch 07) already contains the SDK's object libraries
 # (rexcore, rexui, ...); linking those directly as well would duplicate their global state.
-add_library(mcla_probe STATIC mcla_probe.cpp mcla_gfx.cpp mcla_game.cpp)
-target_link_libraries(mcla_probe PRIVATE rex::runtime MoltenVK::MoltenVK Vulkan::Headers)
+add_library(mcla_probe STATIC mcla_probe.cpp mcla_gfx.cpp mcla_game.cpp ios_gamepad.mm)
+target_link_libraries(mcla_probe PRIVATE rex::runtime MoltenVK::MoltenVK Vulkan::Headers
+    "-framework GameController" "-framework Foundation")
+set_source_files_properties(ios_gamepad.mm PROPERTIES COMPILE_OPTIONS -fobjc-arc)
 
 # A static library does not make CMake build its dependencies; an executable does. The Xenos
 # GPU emulator is linked in (iOS cannot load it as a plugin), so the public build compiles it

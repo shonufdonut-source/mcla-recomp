@@ -39,6 +39,9 @@ int mcla_game_available(void);
 int mcla_game_start(const void* metal_layer, unsigned width_px, unsigned height_px,
                     const char* game_dir, const char* data_dir, int stage, mcla_log_fn log);
 // Call once per display refresh: logs "alive" lines once the guest is running.
+// Launcher settings: a cvar name and value, applied after the saved settings file when the game
+// starts (the launcher wins over the in-game menu for what it sets). Call before mcla_game_start.
+void mcla_game_set_option(const char* name, const char* value);
 void mcla_game_tick(void);
 void mcla_game_resize(unsigned width_px, unsigned height_px);
 

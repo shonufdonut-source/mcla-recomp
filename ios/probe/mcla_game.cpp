@@ -10,11 +10,24 @@
 // compiles this file with MCLA_HAS_GAME=1 and links the generated code and the host sources
 // from src/. The public build compiles it with MCLA_HAS_GAME=0: same API, no game.
 
+#include "ios_gamepad.h"
 #include "ios_host.h"
 
 #ifndef MCLA_HAS_GAME
 #define MCLA_HAS_GAME 0
 #endif
+
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace {
+std::vector<std::pair<std::string, std::string>> g_launcher_options;
+}
+
+extern "C" void mcla_game_set_option(const char* name, const char* value) {
+  if (name && value) g_launcher_options.emplace_back(name, value);
+}
 
 #if MCLA_HAS_GAME
 
@@ -72,6 +85,8 @@ struct GameState {
   rex::system::object_ref<rex::system::XThread> main_thread;
   std::chrono::steady_clock::time_point resumed_at;
   int last_alive_second = 0;
+  std::filesystem::path cache_root;
+  uint64_t paints_at_last_report = 0;
 };
 
 GameState* g_game = nullptr;
@@ -91,6 +106,27 @@ void ListGuestThreads() {
     P("  thread '%s' id %u%s", thread->name().c_str(), static_cast<unsigned>(thread->thread_id()),
       thread->is_guest_thread() ? " (guest)" : "");
   }
+}
+
+// What the shader storage holds: if a second run lists the same files and still creates as many
+// pipelines, the storage is written but not used; if the folder stays empty, it is not written.
+void ListCache(const char* when) {
+  std::error_code ec;
+  uint64_t total = 0;
+  int files = 0;
+  for (auto it = std::filesystem::recursive_directory_iterator(g_game->cache_root, ec);
+       !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+    if (!it->is_regular_file(ec)) continue;
+    const uint64_t size = it->file_size(ec);
+    total += size;
+    if (++files <= 20) {
+      P("  cache file %s: %llu KB",
+        std::filesystem::relative(it->path(), g_game->cache_root, ec).string().c_str(),
+        static_cast<unsigned long long>(size / 1024));
+    }
+  }
+  P("shader cache %s: %d files, %llu KB", when, files,
+    static_cast<unsigned long long>(total / 1024));
 }
 
 }  // namespace
@@ -114,6 +150,7 @@ extern "C" int mcla_game_start(const void* metal_layer, unsigned width_px, unsig
   const std::filesystem::path data_root = data_dir;
   const std::filesystem::path user_root = data_root / "user";
   const std::filesystem::path cache_root = data_root / "cache";
+  g_game->cache_root = cache_root;
 
   NEXT("check the game folder %s", game_root.c_str());
   std::error_code ec;
@@ -147,6 +184,10 @@ extern "C" int mcla_game_start(const void* metal_layer, unsigned width_px, unsig
   }
   // No controller mapping file is shipped; do not look for one by a relative path.
   rex::cvar::SetFlagByName("hid_mappings_file", "");
+  for (const auto& [name, value] : g_launcher_options) {
+    const bool ok = rex::cvar::SetFlagByName(name, value);
+    P("launcher setting: %s = %s%s", name.c_str(), value.c_str(), ok ? "" : " (not accepted)");
+  }
   // The app owns UIApplication; SDL (audio only, if it opens) must not wait for SDL_main.
   SDL_SetMainReady();
 
@@ -179,10 +220,14 @@ extern "C" int mcla_game_start(const void* metal_layer, unsigned width_px, unsig
     }
     g_game->window->SetPresenter(graphics->presenter());
     config.graphics = std::move(graphics);
-    // The kernel calls the game makes once it has graphics assume an input system exists.
-    // Touch and controllers are M5; until then an idle pad keeps the game from waiting.
+    // Controllers through GameController. The idle stand-in stays behind them, as on the
+    // desktop, so the game still sees a pad in slot 0 while none is connected.
     config.input_factory = [](bool) -> std::unique_ptr<rex::system::IInputSystem> {
       auto input = std::make_unique<rex::input::InputSystem>(nullptr);
+      // InputSystem::Setup does not set its drivers up; the host does, as ReXApp does.
+      auto pads = mcla_ios::CreateGameControllerDriver();
+      pads->Setup();
+      input->AddDriver(std::move(pads));
       input->AddDriver(std::make_unique<rex::input::nop::NopInputDriver>(nullptr, 0));
       input->SetDeviceAssignment(std::make_unique<rex::input::SlotAssignment>());
       return input;
@@ -245,6 +290,7 @@ extern "C" int mcla_game_start(const void* metal_layer, unsigned width_px, unsig
 
   if (stage >= 5 && runtime->graphics_system()) {
     NEXT("initialise shader storage under %s", cache_root.c_str());
+    ListCache("before loading");
     runtime->graphics_system()->InitializeShaderStorage(
         cache_root, runtime->kernel_state()->title_id(), true);
   }
@@ -267,6 +313,13 @@ extern "C" void mcla_game_tick(void) {
   if (second <= g_game->last_alive_second) return;
   g_game->last_alive_second = second;
   if (second <= 30 || second % 30 == 0) P("alive: %d s", second);
+  if (g_game->window && second % 5 == 0) {
+    const uint64_t paints = g_game->window->paints();
+    P("display: %.1f fps over the last 5 s (presenter paints)",
+      static_cast<double>(paints - g_game->paints_at_last_report) / 5.0);
+    g_game->paints_at_last_report = paints;
+  }
+  if (g_game->window && (second == 60 || second == 300)) ListCache("now");
   // Twice, a few seconds apart: which threads exist, and whether the set changes.
   if (second == 4 || second == 8) ListGuestThreads();
 }

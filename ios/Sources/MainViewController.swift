@@ -1,7 +1,8 @@
 import UIKit
 import UniformTypeIdentifiers
 
-/// M1 screen: log viewer, game-folder import, share log.
+/// Log and developer screen (Settings › This device): log viewer, folder import, probe, graphics
+/// test, running the game up to a chosen stage, share log.
 /// No game code or data is bundled; the folder is picked by the user in the Files app.
 final class MainViewController: UIViewController, UIDocumentPickerDelegate {
     private let textView = UITextView()
@@ -9,7 +10,9 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = mcla_game_available() != 0 ? "MCLA (game build)" : "MCLA (public probe build)"
+        title = "Log and tools"
+        // Pushed from Settings: keep the back button next to the import button.
+        navigationItem.leftItemsSupplementBackButton = true
         view.backgroundColor = .systemBackground
 
         textView.isEditable = false
@@ -54,7 +57,14 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
                     if v?.isRegularFile == true { files += 1; bytes += Int64(v?.fileSize ?? 0) }
                 }
             }
-            log("app Documents folder (On My iPad > MCLA): \(files) files, \(bytes / 1_048_576) MB, default.xex present: \(names.contains("default.xex"))")
+            // Top level or a game folder (any capitalisation), as GameFolder.locate() looks.
+            let folders = names.filter { $0.lowercased() == "game" }
+            let inFolder = folders.first(where: {
+                fm.fileExists(atPath: docs.appendingPathComponent($0).appendingPathComponent("default.xex").path)
+            })
+            let xexAt: String? = names.contains("default.xex") ? "yes, at the top level"
+                : inFolder.map { "yes, in \($0)" }
+            log("app Documents folder (On My iPad > MCLA): \(files) files, \(bytes / 1_048_576) MB, default.xex present: \(xexAt ?? "no")")
         }
     }
 
