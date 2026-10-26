@@ -22,7 +22,7 @@ target_link_libraries(mcla_probe_linkcheck PRIVATE mcla_probe)
 add_custom_target(mcla_probe_all ALL
     COMMAND ${CMAKE_COMMAND}
         -DOUT=${CMAKE_BINARY_DIR}/libmcla_probe_all.a
-        -DSEARCH_DIRS=${CMAKE_BINARY_DIR}
+        "-DSEARCH_DIRS=${CMAKE_BINARY_DIR}|${REXGLUE_SDK_DIR}/out"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/merge_archives.cmake
     DEPENDS mcla_probe mcla_probe_linkcheck
     VERBATIM)
