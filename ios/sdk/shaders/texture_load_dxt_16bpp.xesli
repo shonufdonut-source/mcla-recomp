@@ -1,0 +1,56 @@
+// MCLA iOS: S3TC (DXT) decoded to 16 bits per texel instead of 32, for GPUs without BC
+// formats (the A12X and other iOS GPUs before Apple7). Half the memory of the RGBA8
+// fallback; DXT1 keeps its 1-bit alpha in R5G5B5A1, DXT3 keeps its 4-bit alpha exactly in
+// R4G4B4A4, DXT5 alpha drops from 8 to 4 bits.
+//
+// Built on xenia's texture_load_dxt*_rgba8 shaders (xenia-project/xenia, BSD 3-clause,
+// Copyright Ben Vanik): the blocks are decoded to RGBA8 rows by xenia's own functions in
+// pixel_formats.xesli, then packed. See ios/sdk/shaders/build-shaders.sh.
+
+#ifndef MCLA_TEXTURE_LOAD_DXT_16BPP_XESLI_
+#define MCLA_TEXTURE_LOAD_DXT_16BPP_XESLI_
+
+#include "pixel_formats.xesli"
+
+// Four RGBA8 texels (R in the low byte) to four VK_FORMAT_R5G5B5A1_UNORM_PACK16 texels
+// (R in bits 15:11, G 10:6, B 5:1, A 0), two per 32-bit word, the first texel in the low half.
+uint2_xe McRGBA8RowToR5G5B5A1(uint4_xe rgba8) {
+  uint4_xe packed = ((rgba8 & 0xF8u) << 8u) | ((rgba8 >> 5u) & 0x7C0u) |
+                    ((rgba8 >> 18u) & 0x3Eu) | (rgba8 >> 31u);
+  return packed.xz | (packed.yw << 16u);
+}
+
+// Four RGBA8 texels to four VK_FORMAT_R4G4B4A4_UNORM_PACK16 texels (R in bits 15:12, G 11:8,
+// B 7:4, A 3:0).
+uint2_xe McRGBA8RowToR4G4B4A4(uint4_xe rgba8) {
+  uint4_xe packed = ((rgba8 & 0xF0u) << 8u) | ((rgba8 >> 4u) & 0xF00u) |
+                    ((rgba8 >> 16u) & 0xF0u) | (rgba8 >> 28u);
+  return packed.xz | (packed.yw << 16u);
+}
+
+// One row (0...3) of a DXT3 block as RGBA8, as texture_load_dxt3_rgba8 writes it.
+uint4_xe McDXT3BlockRowToRGBA8(uint4_xe block, uint row) {
+  uint2_xe bgr_end_8in10 = XeDXTColorEndpointsToBGR8In10(block.z);
+  uint bgr_weights = XeDXTHighColorWeights(block.w) >> (8u * row);
+  uint alpha_bits = row < 2u ? block.x : block.y;
+  return XeDXTOpaqueRowToRGB8(bgr_end_8in10, bgr_weights) +
+         ((uint_x4_xe(alpha_bits) >> (uint4_xe(0u, 4u, 8u, 12u) + 16u * (row & 1u))) &
+          0xFu) * 0x11000000u;
+}
+
+// One row (0...3) of a DXT5 block as RGBA8, as texture_load_dxt5_rgba8 writes it.
+uint4_xe McDXT5BlockRowToRGBA8(uint4_xe block, uint row) {
+  uint2_xe bgr_end_8in10 = XeDXTColorEndpointsToBGR8In10(block.z);
+  uint bgr_weights = XeDXTHighColorWeights(block.w) >> (8u * row);
+  uint2_xe alpha_end = (block.xx >> uint2_xe(0u, 8u)) & 0xFFu;
+  uint alpha_weights = XeDXT5HighAlphaWeights(
+      alpha_end,
+      row < 2u ? ((block.x >> 16u) | ((block.y & 0xFFu) << 16u)) : (block.y >> 8u));
+  alpha_weights >>= 12u * (row & 1u);
+  return XeDXTOpaqueRowToRGB8(bgr_end_8in10, bgr_weights) |
+         ((uint_x4_xe(XeDXT5RowToA8(alpha_end, alpha_weights)) <<
+               uint4_xe(24u, 16u, 8u, 0u)) &
+          0xFF000000u);
+}
+
+#endif  // MCLA_TEXTURE_LOAD_DXT_16BPP_XESLI_

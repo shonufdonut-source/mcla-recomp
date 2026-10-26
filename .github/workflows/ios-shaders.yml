@@ -1,0 +1,24 @@
+name: iOS SDK shaders
+
+# Compiles the 16-bit DXT texture load shaders (ios/sdk/shaders) to SPIR-V headers for SDK
+# patch 09. Shader code only: no game code or data.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-port]
+    paths: ["ios/sdk/shaders/**", ".github/workflows/ios-shaders.yml"]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q glslang-tools spirv-tools
+      - name: Compile
+        run: bash ios/sdk/shaders/build-shaders.sh out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-sdk-shaders
+          path: out/*.h

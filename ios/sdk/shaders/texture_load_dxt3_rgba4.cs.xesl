@@ -1,0 +1,45 @@
+// MCLA iOS: xenia's texture_load_dxt3_rgba8 with R4G4B4A4 output (texture_load_dxt_16bpp.xesli).
+
+#include "texture_load.xesli"
+#include "texture_load_dxt_16bpp.xesli"
+
+XE_TEXTURE_LOAD_ENTRY(16)
+{
+  // 1 thread = 2 DXT3 blocks to 8x4 R4G4B4A4 texels.
+  XeTextureLoadInfo load_info = XeTextureLoadGetInfo(pass_push_consts_xe);
+  uint3_xe block_index = in_global_thread_id_xe << uint3_xe(1u, 0u, 0u);
+  dont_flatten_xe
+  if (any(greater_than_equal_xe(block_index.xy, load_info.size_blocks.xy))) {
+    return;
+  }
+  uint3_xe texel_index_host = block_index << uint3_xe(2u, 2u, 0u);
+  uint block_offset_host =
+      load_info.host_offset +
+      uint(XeTextureHostLinearOffset(int3_xe(texel_index_host),
+                                     load_info.host_pitch,
+                                     load_info.height_texels, 2u));
+  uint block_offset_guest =
+      XeTextureLoadSourceAddress(load_info, block_index, 4u);
+  uint4_xe block_0 = XeEndianSwap32(
+      byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
+      load_info.endian_32);
+  block_offset_guest += XeTextureLoadLocalXAddressXor(1u, 4u,
+                                                      load_info.is_tiled);
+  uint4_xe block_1 = XeEndianSwap32(
+      byte_buffer_align16_load16_xe(xe_texture_load_source, block_offset_guest),
+      load_info.endian_32);
+  uint i;
+  unroll_xe for (i = 0u; i < 4u; ++i) {
+    if (i != 0u) {
+      if (texel_index_host.y + i >= load_info.height_texels) {
+        break;
+      }
+      block_offset_host += load_info.host_pitch;
+    }
+    byte_buffer_align16_store16_xe(
+        xe_texture_load_dest, block_offset_host,
+        uint4_xe(McRGBA8RowToR4G4B4A4(McDXT3BlockRowToRGBA8(block_0, i)),
+                 McRGBA8RowToR4G4B4A4(McDXT3BlockRowToRGBA8(block_1, i))));
+  }
+}
+entry_code_end_compute_xe
