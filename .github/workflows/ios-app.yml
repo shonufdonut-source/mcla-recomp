@@ -61,7 +61,10 @@ jobs:
           mvk=$(find probe-build sdk/out sdk/thirdparty -name "libMoltenVK*.a" 2>/dev/null | head -n 1)
           test -n "$mvk" || { echo "libMoltenVK.a not found"; exit 1; }
           missing=0
-          check() { if nm -gU "$1" 2>/dev/null | c++filt | grep -qF "$2"; then echo "ok: $2"; else echo "missing in $(basename "$1"): $2"; missing=1; fi; }
+          # The symbol list goes to a file first: with pipefail, grep -q stopping early gives nm
+          # SIGPIPE and a symbol that is there would count as missing.
+          check() { nm -gU "$1" 2>/dev/null | c++filt > "$RUNNER_TEMP/syms.txt" || true
+            if grep -qF "$2" "$RUNNER_TEMP/syms.txt"; then echo "ok: $2"; else echo "missing in $(basename "$1"): $2"; missing=1; fi; }
           check "$mvk" "vkGetInstanceProcAddr"
           # vkGetPerformanceStatisticsMVK is looked up by name through vkGetInstanceProcAddr.
           if grep -qa "vkGetPerformanceStatisticsMVK" "$mvk"; then echo "ok: vkGetPerformanceStatisticsMVK entry point"; else echo "missing in $(basename "$mvk"): vkGetPerformanceStatisticsMVK entry point"; missing=1; fi
