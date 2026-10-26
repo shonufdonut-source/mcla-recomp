@@ -26,6 +26,7 @@ jobs:
       - name: Build for device, unsigned
         working-directory: ios
         run: |
+          set -o pipefail
           xcodebuild -project MCLA.xcodeproj -scheme MCLA -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath build \
@@ -37,6 +38,8 @@ jobs:
         run: |
           APP=$(find build/Build/Products -maxdepth 2 -name 'MCLA.app' | head -n 1)
           test -n "$APP"
+          test -x "$APP/MCLA" || { echo "no executable in $APP"; exit 1; }
+          file "$APP/MCLA" | grep -q arm64 || { echo "executable is not arm64"; exit 1; }
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
           zip -qry MCLA-unsigned.ipa Payload
