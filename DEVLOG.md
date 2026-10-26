@@ -125,4 +125,6 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   includes ~1.1 s of startup before the first frame, so painting ran at about 60 fps. One sample only: the log
   was shared after ~4 s, so sustained rate and thermals are not measured. Thermal state 0 at launch.
   **The SDK presenter path (instance, device, surface, swapchain, immediate drawer) is verified on the iPad**,
-  as far as the log shows. That the bar was visible on screen is the owner's observation, not in the log.
+  as far as the log shows.
+- [device, owner] Confirmed on screen: dark-blue background with the orange bar sweeping smoothly. M4 step 1
+  (SDK -> MoltenVK direct -> iOS CAMetalLayer surface, clear-screen test) is done.
