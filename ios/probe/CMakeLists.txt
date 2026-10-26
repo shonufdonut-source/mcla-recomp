@@ -27,6 +27,12 @@ target_link_libraries(mcla_probe PRIVATE rex::runtime MoltenVK::MoltenVK Vulkan:
 add_executable(mcla_probe_linkcheck linkcheck.cpp)
 target_link_libraries(mcla_probe_linkcheck PRIVATE mcla_probe rex::gpu-xenos)
 
+# The game half of mcla_game.cpp, compiled without linking: it declares the game's symbols but
+# needs none of its code, so the public build can check it compiles before a private build.
+add_library(mcla_game_compilecheck OBJECT EXCLUDE_FROM_ALL mcla_game.cpp)
+target_link_libraries(mcla_game_compilecheck PRIVATE rex::runtime MoltenVK::MoltenVK Vulkan::Headers)
+target_compile_definitions(mcla_game_compilecheck PRIVATE MCLA_HAS_GAME=1)
+
 if(MCLA_GAME_DIR)
     set(MCLA_GENERATED_DIR "${MCLA_GAME_DIR}/generated/default")
     if(NOT EXISTS "${MCLA_GENERATED_DIR}/sources.cmake")

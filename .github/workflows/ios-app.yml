@@ -43,6 +43,8 @@ jobs:
             -DREXGLUE_USE_VULKAN=ON -DREXGLUE_ENABLE_TRACY=OFF \
             2>&1 | tee probe-configure.log | tail -n 30
           cmake --build probe-build --target mcla_probe_all 2>&1 | tee probe-build.log | tail -n 40
+          # The private build's game host (compiled only, no game code linked).
+          cmake --build probe-build --target mcla_game_compilecheck 2>&1 | tee -a probe-build.log | tail -n 40
           mkdir -p ios/probe-lib
           cp probe-build/libmcla_probe_all.a ios/probe-lib/
           # Linked whole (-force_load): objects reached only through static initialisers would
