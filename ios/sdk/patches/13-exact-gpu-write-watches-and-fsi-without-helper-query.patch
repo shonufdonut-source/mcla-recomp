@@ -1,0 +1,148 @@
+diff --git a/include/rex/graphics/gpu_stats.h b/include/rex/graphics/gpu_stats.h
+index 02aca67..b99cbfa 100644
+--- a/include/rex/graphics/gpu_stats.h
++++ b/include/rex/graphics/gpu_stats.h
+@@ -29,6 +29,9 @@ enum Counter : int {
+   kTexturesCreated,
+   kTexturesEvictedHard,
+   kTexturesEvictedSoft,
++  // Texture invalidations (the texture's memory changed): by the GPU (resolves) and by the CPU.
++  kTextureInvalidationsGpu,
++  kTextureInvalidationsCpu,
+   kCounterCount,
+ };
+ 
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index de3fa66..dee232d 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -228,6 +228,9 @@ class SharedMemory {
+         WatchNode* node_first;
+         uint32_t page_first;
+         uint32_t page_last;
++        // The watched bytes themselves, for GPU writes, which need no page granularity.
++        uint32_t address_first;
++        uint32_t address_last;
+       };
+       WatchRange* next_free;
+     };
+@@ -264,7 +267,9 @@ class SharedMemory {
+   WatchNode* watch_node_first_free_ = nullptr;
+   // Triggers the watches (global and per-range), removing triggered range
+   // watches.
+-  void FireWatches(uint32_t page_first, uint32_t page_last, bool invalidated_by_gpu);
++  // exact_first/exact_last: for a GPU write, only ranges overlapping those bytes fire.
++  void FireWatches(uint32_t page_first, uint32_t page_last, bool invalidated_by_gpu,
++                   uint32_t exact_first = 0, uint32_t exact_last = UINT32_MAX);
+   // Unlinks and frees the range and its nodes. Call this in the global critical
+   // region.
+   void UnlinkWatchRange(WatchRange* range);
+diff --git a/src/graphics/pipeline/texture/cache.cpp b/src/graphics/pipeline/texture/cache.cpp
+index 329ca9f..ed7a1be 100644
+--- a/src/graphics/pipeline/texture/cache.cpp
++++ b/src/graphics/pipeline/texture/cache.cpp
+@@ -765,6 +765,8 @@ void TextureCache::Texture::WatchCallback(
+ void TextureCache::WatchCallback(const std::unique_lock<std::recursive_mutex>& global_lock,
+                                  void* context, void* data, uint64_t argument,
+                                  bool invalidated_by_gpu) {
++  stats::Add(invalidated_by_gpu ? stats::kTextureInvalidationsGpu : stats::kTextureInvalidationsCpu,
++             1);
+   Texture& texture = *static_cast<Texture*>(context);
+   texture.WatchCallback(global_lock, argument != 0);
+   texture.texture_cache().texture_became_outdated_.store(true, std::memory_order_release);
+diff --git a/src/graphics/shared_memory.cpp b/src/graphics/shared_memory.cpp
+index 47926fb..fbd445c 100644
+--- a/src/graphics/shared_memory.cpp
++++ b/src/graphics/shared_memory.cpp
+@@ -43,6 +43,11 @@ REXCVAR_DEFINE_UINT32(shared_memory_hot_page_exact, 1, "GPU",
+ REXCVAR_DEFINE_UINT32(shared_memory_hot_page_ms, 2000, "GPU",
+                       "How long a hot page stays hot before it is watched again");
+ 
++
++REXCVAR_DEFINE_BOOL(gpu_write_exact_watches, true, "GPU",
++                    "Invalidate only textures overlapping the bytes the GPU wrote (resolves), not "
++                    "every texture on the host pages they touch");
++
+ namespace rex::graphics {
+ 
+ // Guest memory copied to the GPU buffer so far, for performance diagnosis.
+@@ -246,6 +251,8 @@ SharedMemory::WatchHandle SharedMemory::WatchMemoryRange(uint32_t start, uint32_
+   range->callback_argument = callback_argument;
+   range->page_first = watch_page_first;
+   range->page_last = watch_page_last;
++  range->address_first = start;
++  range->address_last = start + length - 1;
+ 
+   // Allocate and link the nodes.
+   WatchNode* node_previous = nullptr;
+@@ -284,7 +291,8 @@ void SharedMemory::UnwatchMemoryRange(WatchHandle handle) {
+   UnlinkWatchRange(reinterpret_cast<WatchRange*>(handle));
+ }
+ 
+-void SharedMemory::FireWatches(uint32_t page_first, uint32_t page_last, bool invalidated_by_gpu) {
++void SharedMemory::FireWatches(uint32_t page_first, uint32_t page_last, bool invalidated_by_gpu,
++                               uint32_t exact_first, uint32_t exact_last) {
+   uint32_t address_first = page_first << page_size_log2_;
+   uint32_t address_last = (page_last << page_size_log2_) + ((1 << page_size_log2_) - 1);
+   uint32_t bucket_first = address_first >> kWatchBucketSizeLog2;
+@@ -306,7 +314,8 @@ void SharedMemory::FireWatches(uint32_t page_first, uint32_t page_last, bool inv
+       // Store the next node now since when the callback is triggered, the links
+       // will be broken.
+       node = node->bucket_node_next;
+-      if (page_first <= range->page_last && page_last >= range->page_first) {
++      if (page_first <= range->page_last && page_last >= range->page_first &&
++          exact_first <= range->address_last && exact_last >= range->address_first) {
+         range->callback(global_lock, range->callback_context, range->callback_data,
+                         range->callback_argument, invalidated_by_gpu);
+         UnlinkWatchRange(range);
+@@ -325,8 +334,15 @@ void SharedMemory::RangeWrittenByGpu(uint32_t start, uint32_t length) {
+   uint32_t page_last = end >> page_size_log2_;
+ 
+   // Trigger modification callbacks so, for instance, resolved data is loaded to
+-  // the texture.
+-  FireWatches(page_first, page_last, true);
++  // the texture. CPU writes are caught a host page at a time (16 KB on Apple
++  // devices, 4 KB on the Xbox 360), but this write is known to the byte, so with
++  // gpu_write_exact_watches only ranges it really overlaps fire: a resolve then
++  // no longer reloads every texture sharing its pages.
++  if (REXCVAR_GET(gpu_write_exact_watches)) {
++    FireWatches(page_first, page_last, true, start, end);
++  } else {
++    FireWatches(page_first, page_last, true);
++  }
+ 
+   // Mark the range as valid (so pages are not reuploaded until modified by the
+   // CPU) and watch it so the CPU can reuse it and this will be caught.
+diff --git a/src/graphics/vulkan/pipeline_cache.cpp b/src/graphics/vulkan/pipeline_cache.cpp
+index f05c3b3..9f0487c 100644
+--- a/src/graphics/vulkan/pipeline_cache.cpp
++++ b/src/graphics/vulkan/pipeline_cache.cpp
+@@ -59,6 +59,11 @@ REXCVAR_DEFINE_BOOL(vulkan_tessellation_wireframe, false, "GPU/Vulkan",
+                     "Render tessellation as wireframe")
+     .lifecycle(rex::cvar::Lifecycle::kHotReload);
+ 
++
++REXCVAR_DEFINE_BOOL(vulkan_fsi_demote_to_helper, false, "GPU/Vulkan",
++                    "With the fragment shader interlock path, kill pixels by demotion to helper "
++                    "invocations (needs simd_is_helper_thread on Metal) instead of a variable");
++
+ namespace rex::graphics::vulkan {
+ 
+ namespace {
+@@ -291,8 +296,15 @@ bool VulkanPipelineCache::Initialize() {
+   bool edram_fragment_shader_interlock =
+       render_target_cache_.GetPath() == RenderTargetCache::Path::kPixelShaderInterlock;
+ 
++  SpirvShaderTranslator::Features translator_features(vulkan_device);
++  // With fragment shader interlock, demotion makes killed pixels skip their EDRAM writes through
++  // OpIsHelperInvocationEXT, which Metal compiles to simd_is_helper_thread, missing on older Apple
++  // GPUs such as the A12X (the pipeline fails to compile). Kill through a variable instead.
++  if (edram_fragment_shader_interlock && !REXCVAR_GET(vulkan_fsi_demote_to_helper)) {
++    translator_features.demote_to_helper_invocation = false;
++  }
+   shader_translator_ = std::make_unique<SpirvShaderTranslator>(
+-      SpirvShaderTranslator::Features(vulkan_device),
++      translator_features,
+       render_target_cache_.msaa_2x_attachments_supported(),
+       render_target_cache_.msaa_2x_no_attachments_supported(), edram_fragment_shader_interlock,
+       render_target_cache_.draw_resolution_scale_x(),

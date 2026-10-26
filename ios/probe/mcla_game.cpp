@@ -292,6 +292,8 @@ struct FrameWorkSample {
   int64_t texture_loads = 0, resolves = 0, transfers = 0;
   // SDK patch 12: textures created, and destroyed over the hard or the soft cache limit.
   int64_t textures_created = 0, evicted_hard = 0, evicted_soft = 0;
+  // SDK patch 13: textures invalidated by GPU writes (resolves) and by CPU writes.
+  int64_t invalidated_gpu = 0, invalidated_cpu = 0;
   uint64_t submissions[4] = {};
   MvkPerformanceStatistics mvk{};
   bool mvk_valid = false;
@@ -364,6 +366,8 @@ FrameWorkSample TakeFrameWorkSample() {
   sample.textures_created = stats::Get(stats::kTexturesCreated);
   sample.evicted_hard = stats::Get(stats::kTexturesEvictedHard);
   sample.evicted_soft = stats::Get(stats::kTexturesEvictedSoft);
+  sample.invalidated_gpu = stats::Get(stats::kTextureInvalidationsGpu);
+  sample.invalidated_cpu = stats::Get(stats::kTextureInvalidationsCpu);
   VkDevice device = GameVkDevice();
   PfnGetPerformanceStatisticsMVK get_statistics = device ? GetPerformanceStatisticsMVK() : nullptr;
   if (get_statistics) {
@@ -422,6 +426,9 @@ void LogFrameWork(const FrameWorkSample& before, const FrameWorkSample& after, d
     double(created) * per_frame, double(std::max<int64_t>(loads - created, 0)) * per_frame,
     double(after.evicted_hard - before.evicted_hard) * per_frame,
     double(after.evicted_soft - before.evicted_soft) * per_frame);
+  P("textures: per frame %.1f invalidated by GPU writes (resolves), %.1f by CPU writes",
+    double(after.invalidated_gpu - before.invalidated_gpu) * per_frame,
+    double(after.invalidated_cpu - before.invalidated_cpu) * per_frame);
   // What the GPU memory holds (the rest of "GPU allocations" is the 512 MB guest memory buffer,
   // the EDRAM buffer, upload buffers and MoltenVK's own).
   namespace stats = rex::graphics::stats;

@@ -73,14 +73,24 @@ enum LaunchSettings {
     /// those copies and most render target memory go away.
     static let renderPath = LaunchChoice(
         key: "renderPath", title: "Render path",
-        detail: "Experimental: Pixel interlock skips most render target copies and memory. It may be faster or slower here, and may draw some things wrong. Shaders build again the first time.",
+        detail: "Experimental: Pixel interlock skips most render target copies and memory. It may be faster or slower here, and may draw some things wrong or nothing at all (0.3.1 drew nothing; 0.3.2 has a fix to try). Shaders build again the first time.",
         cvar: "render_target_path_vulkan",
         options: [("Standard", "fbo"), ("Pixel interlock", "fsi")], defaultValue: "fbo")
 
-    static let choices = [frameRate, resolution, brightness, intro, textureCache, renderPath]
+    /// When the game writes memory a texture was loaded from, the SDK reloads everything in a block
+    /// around the write. It was made for 4 KB pages (256 KB blocks); with the iPad's 16 KB pages the
+    /// shipped block is 1 MB. Smaller blocks reload less but catch more write faults.
+    static let changeTracking = LaunchChoice(
+        key: "changeTracking", title: "Texture change tracking",
+        detail: "How much is reloaded around each game write to texture memory. Wide is as shipped (1 MB on iPad), Medium is the PC's 256 KB, Page is 16 KB.",
+        cvar: "shared_memory_invalidation_pages_log2",
+        options: [("Wide", "6"), ("Medium", "4"), ("Page", "0")], defaultValue: "4")
+
+    static let choices = [frameRate, resolution, brightness, intro, textureCache, renderPath,
+                          changeTracking]
     /// Not part of a preset: changing them keeps the preset selected.
     static let personalChoiceKeys: Set<String> = [brightness.key, intro.key, textureCache.key,
-                                                  renderPath.key]
+                                                  renderPath.key, changeTracking.key]
 
     /// iOS ends the app when it nears the per-app memory budget (about 2.8 GB on a 4 GB iPad).
     /// The SDK's texture cache alone may grow to 768 MB, and this GPU stores the game's
