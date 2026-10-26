@@ -37,3 +37,17 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
 - Bug seen in the screenshot: every log line was shown twice in the viewer (the file log was not checked).
   Fixed by rebuilding the viewer text from the log; fix not yet re-tested on device.
 - Not yet tested on device: Import game folder, Share log.
+
+## 2026-10-25: M1a import and share verified on device
+
+- [device] Viewer shows each log line once (duplicate fix confirmed).
+- [device] **Share log works**: `mcla.log` exported from the iPad and read on the PC.
+- [device] **App Documents folder works**: after putting `default.xex` into On My iPad > MCLA (the app's own
+  Documents folder, via LocalSend + Files), the log reported `1 files, 8 MB, default.xex present: true`.
+- [device] Files-app folder picker: first attempt had every item greyed out (files are greyed because the picker
+  only accepts folders; one test stopped at the Downloads folder, which is in iCloud with an upload error).
+  The folder bookmark path (`saved game folder: ...`) is **not verified**. The Documents folder route is the
+  one to use for now.
+- Decision: game files live in the app's Documents folder (On My iPad > MCLA). The PC prep script (M3) will
+  arrange files for that layout.
+- Privacy note: do not stage game files in iCloud Drive. Use On My iPad.
