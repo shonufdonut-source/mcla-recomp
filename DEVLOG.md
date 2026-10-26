@@ -71,4 +71,15 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
 - [CI] Run 6 (40258451989): **SDK builds for iOS arm64 with 0 failures** (860 steps, including linking the
   `rexglue` executable). Only a MoltenVK warning about an iOS 18 API remains (device is on 26.7.1).
   Skeleton app also builds with the iOS 17 minimum.
-- Not yet: linking the SDK into the app, the iOS surface (SDL/CAMetalLayer), calling MoltenVK directly, running on device.
+
+## 2026-10-25: M1b step 2, device probe app (SDK + MoltenVK linked into the app)
+
+- [CI] `ios-app.yml` builds the SDK core, a static MoltenVK and `ios/probe` for iOS arm64, merges 11 archives
+  into `libmcla_probe_all.a`, and links it into the app (run 40260925234): 4.9 MB arm64 executable containing
+  `mcla_probe_run`, MoltenVK and the Vulkan entry points. Two failed runs first: dependencies not built
+  (fixed with a link-check executable) and archives looked for in the wrong folder (the SDK writes to `out/`).
+- [assumed] The probe runs on the iPad. **Not run on the device yet.** It reports MoltenVK features, formats,
+  limits and device creation; SDK page allocation; the SDK's 4.5 GB shm-backed guest arena; the SDK fault
+  handler; SDK fibers.
+- Log keeps the previous run (`mcla-previous.log`) so a crash during the probe is not lost.
+- Not yet: the iOS surface (SDL/CAMetalLayer), calling MoltenVK directly, running on device.
