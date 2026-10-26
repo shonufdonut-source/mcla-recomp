@@ -7,5 +7,10 @@ int main() {
   mcla_gfx_start(nullptr, 0, 0, [](const char*) {});
   mcla_gfx_tick();
   mcla_gfx_resize(0, 0);
+  if (mcla_game_available()) {
+    mcla_game_start(nullptr, 0, 0, "/tmp", "/tmp", 1, [](const char*) {});
+  }
+  mcla_game_tick();
+  mcla_game_resize(0, 0);
   return 0;
 }

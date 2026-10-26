@@ -9,7 +9,7 @@ import os
 enum SystemReport {
     static func run() {
         let info = ProcessInfo.processInfo
-        log("MCLA iOS port M1 (no game code in this build)")
+        log("MCLA iOS port, \(mcla_game_available() != 0 ? "game build (private)" : "public build, no game code")")
         log("device: \(machine()) iPadOS/iOS \(UIDevice.current.systemVersion)")
         log("physical memory: \(info.physicalMemory / 1_048_576) MB")
         log("os_proc_available_memory: \(os_proc_available_memory() / 1_048_576) MB (this is the per-app budget iOS grants right now)")

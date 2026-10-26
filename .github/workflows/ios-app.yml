@@ -45,6 +45,13 @@ jobs:
           cmake --build probe-build --target mcla_probe_all 2>&1 | tee probe-build.log | tail -n 40
           mkdir -p ios/probe-lib
           cp probe-build/libmcla_probe_all.a ios/probe-lib/
+          # Linked whole (-force_load): objects reached only through static initialisers would
+          # otherwise be dropped, and this checks the runtime and GPU emulator link completely.
+          for lib in librexruntime.a librexgpu-xenos.a; do
+            f=$(find probe-build sdk/out -name "$lib" | head -n 1)
+            test -n "$f" || { echo "$lib not built"; exit 1; }
+            cp "$f" ios/probe-lib/
+          done
           ls -l ios/probe-lib
 
       - name: Generate Xcode project
@@ -59,6 +66,7 @@ jobs:
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            MCLA_EXTRA_LDFLAGS='-force_load $(PROJECT_DIR)/probe-lib/librexruntime.a -force_load $(PROJECT_DIR)/probe-lib/librexgpu-xenos.a' \
             build | tee xcodebuild.log | tail -n 60
 
       - name: Package unsigned IPA

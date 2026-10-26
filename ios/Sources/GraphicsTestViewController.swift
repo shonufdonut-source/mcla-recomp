@@ -19,6 +19,17 @@ final class MetalLayerView: UIView {
     }
 }
 
+/// Asks for the display's top rate: 120 Hz on ProMotion iPads (the iPad Pro 2018 has it), 60 elsewhere.
+/// iOS may still lower it (Low Power Mode, heat); the frame-rate log shows what was granted.
+func makeDisplayLink(target: Any, selector: Selector) -> CADisplayLink {
+    let link = CADisplayLink(target: target, selector: selector)
+    let top = Float(UIScreen.main.maximumFramesPerSecond)
+    link.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, top), maximum: top, preferred: top)
+    link.add(to: .main, forMode: .common)
+    log("display: up to \(Int(top)) Hz, requested \(Int(top))")
+    return link
+}
+
 /// Full-screen graphics test: SDK presenter + immediate drawer through MoltenVK (no game code).
 final class GraphicsTestViewController: UIViewController {
     private let metalView = MetalLayerView()
@@ -60,10 +71,7 @@ final class GraphicsTestViewController: UIViewController {
             return
         }
         metalView.onDrawableSizeChange = { w, h in mcla_gfx_resize(w, h) }
-        let link = CADisplayLink(target: self, selector: #selector(tick))
-        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
-        link.add(to: .main, forMode: .common)
-        displayLink = link
+        displayLink = makeDisplayLink(target: self, selector: #selector(tick))
     }
 
     @objc private func tick() { mcla_gfx_tick() }

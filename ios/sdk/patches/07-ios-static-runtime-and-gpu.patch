@@ -1,0 +1,32 @@
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 6978e3f..1241de3 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -96,8 +96,8 @@ if(REXGLUE_USE_D3D12)
+         ${REXGPU_XENOS_D3D12_SOURCES})
+ endif()
+ 
+-# On PS5 the GPU implementation is linked in, not loaded as a plugin.
+-if(PS5)
++# On PS5 and iOS the GPU implementation is linked in, not loaded as a plugin.
++if(PS5 OR IOS)
+     add_library(rexgpu-xenos STATIC ${REXGPU_XENOS_SOURCES})
+ else()
+     add_library(rexgpu-xenos SHARED ${REXGPU_XENOS_SOURCES})
+diff --git a/src/system/CMakeLists.txt b/src/system/CMakeLists.txt
+index 5f57565..6fa3574 100644
+--- a/src/system/CMakeLists.txt
++++ b/src/system/CMakeLists.txt
+@@ -48,9 +48,9 @@ set(REXSYSTEM_SOURCES
+     xex_module.cpp
+ )
+ 
+-# PS5 titles are one static executable; there is nothing to load a shared
+-# runtime from.
+-if(PS5)
++# PS5 titles and iOS apps are one static executable; there is nothing to load a
++# shared runtime from (iOS does not allow loading code).
++if(PS5 OR IOS)
+     add_library(rexruntime STATIC ${REXSYSTEM_SOURCES})
+ else()
+     add_library(rexruntime SHARED ${REXSYSTEM_SOURCES})

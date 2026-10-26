@@ -5,11 +5,11 @@ import UniformTypeIdentifiers
 /// No game code or data is bundled; the folder is picked by the user in the Files app.
 final class MainViewController: UIViewController, UIDocumentPickerDelegate {
     private let textView = UITextView()
-    private static let bookmarkKey = "gameFolderBookmark"
+    private static let bookmarkKey = GameFolder.bookmarkKey
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "MCLA (port M1b probe)"
+        title = mcla_game_available() != 0 ? "MCLA (game build)" : "MCLA (public probe build)"
         view.backgroundColor = .systemBackground
 
         textView.isEditable = false
@@ -30,6 +30,7 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
             UIBarButtonItem(title: "Share log", style: .plain, target: self, action: #selector(shareLog)),
             UIBarButtonItem(title: "Run probe", style: .plain, target: self, action: #selector(runProbe)),
             UIBarButtonItem(title: "Graphics test", style: .plain, target: self, action: #selector(graphicsTest)),
+            UIBarButtonItem(title: "Run game", style: .plain, target: self, action: #selector(runGame(_:))),
         ]
 
         NotificationCenter.default.addObserver(
@@ -72,6 +73,32 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
         let vc = GraphicsTestViewController()
         vc.modalPresentationStyle = .fullScreen
         present(vc, animated: true)
+    }
+
+    /// Picks how far the game host goes (see mcla_probe.h). The game itself is only in the private build.
+    @objc private func runGame(_ sender: UIBarButtonItem) {
+        guard mcla_game_available() != 0 else {
+            log("Run game: this build has no game code (public build); the private build adds it")
+            return
+        }
+        let sheet = UIAlertController(title: "Run game up to", message: nil, preferredStyle: .actionSheet)
+        let stages: [(Int32, String)] = [
+            (1, "1: runtime setup"),
+            (2, "2: + load default.xex"),
+            (3, "3: + main guest thread (entry point)"),
+            (4, "4: + run guest code, no graphics"),
+            (5, "5: + run with graphics (experimental)"),
+        ]
+        for (stage, title) in stages {
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                let vc = GameViewController(stage: stage)
+                vc.modalPresentationStyle = .fullScreen
+                self?.present(vc, animated: true)
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        sheet.popoverPresentationController?.barButtonItem = sender
+        present(sheet, animated: true)
     }
 
     @objc private func shareLog() {
@@ -139,7 +166,8 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
             }
             log("folder contents: \(files) files, \(bytes / 1_048_576) MB")
             log("default.xex present at top level: \(top.contains("default.xex"))")
-            log("M1 stops here: the recompiled game is not linked into this build yet")
+            log(mcla_game_available() != 0 ? "game code is in this build: tap Run game"
+                                           : "this build has no game code (public build)")
         }
     }
 }
