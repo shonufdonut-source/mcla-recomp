@@ -37,7 +37,9 @@ targets:
       base:
         SWIFT_OBJC_BRIDGING_HEADER: probe/mcla_probe.h
         LIBRARY_SEARCH_PATHS: $(PROJECT_DIR)/probe-lib
-        OTHER_LDFLAGS: -lmcla_probe_all -lc++
+        # -ObjC keeps MoltenVK's Objective-C categories (e.g. setBorderColorMVK:), which the linker
+        # otherwise drops from a static library because nothing references them by symbol.
+        OTHER_LDFLAGS: -ObjC -lmcla_probe_all -lc++
         DEAD_CODE_STRIPPING: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.shonufdonut.mcla
         INFOPLIST_FILE: Info.plist

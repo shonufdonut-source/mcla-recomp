@@ -114,3 +114,7 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
   VkDevice" line, inside `VulkanProvider::Create`. Reproduced twice. Probe still passes. Cause unknown: waiting
   for the iOS crash report (.ips). Device thermal state was 2 (serious) at launch.
 - [device] MetalFX spatial upscaling supported, temporal not. Argument buffers are tier 1 (NOTES corrected).
+- [device] Crash report decoded against the saved build (offset matches): `NSInvalidArgumentException`,
+  unrecognized selector `setBorderColorMVK:` in `MVKSampler::newMTLSamplerDescriptor` <- `vkCreateSampler` <-
+  SDK `UISamplers::Create`. That is a MoltenVK Objective-C category, dropped by the linker from the static
+  library. Fix: link with `-ObjC`. Not an iOS or A12X limitation.
