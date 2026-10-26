@@ -32,7 +32,26 @@ final class MainViewController: UIViewController, UIDocumentPickerDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(logAppended(_:)), name: Log.didAppend, object: nil)
         textView.text = Log.shared.text
+        scanAppDocuments()
         checkSavedFolder()
+    }
+
+    /// Files placed in On My iPad > MCLA (this app's Documents folder) need no picker.
+    private func scanAppDocuments() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        DispatchQueue.global(qos: .utility).async {
+            let fm = FileManager.default
+            let names = ((try? fm.contentsOfDirectory(atPath: docs.path)) ?? []).filter { $0 != "mcla.log" }
+            var bytes: Int64 = 0
+            var files = 0
+            if let e = fm.enumerator(at: docs, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]) {
+                for case let f as URL in e where f.lastPathComponent != "mcla.log" {
+                    let v = try? f.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                    if v?.isRegularFile == true { files += 1; bytes += Int64(v?.fileSize ?? 0) }
+                }
+            }
+            log("app Documents folder (On My iPad > MCLA): \(files) files, \(bytes / 1_048_576) MB, default.xex present: \(names.contains("default.xex"))")
+        }
     }
 
     @objc private func logAppended(_ note: Notification) {
