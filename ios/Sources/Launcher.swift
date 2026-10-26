@@ -539,14 +539,14 @@ final class GraphicsSettingsViewController: UITableViewController {
                 control.heightAnchor.constraint(equalToConstant: 36),
             ])
         } else {
-            let toggle = toggle(at: indexPath)
+            let item = toggle(at: indexPath)
             var content = cell.defaultContentConfiguration()
-            content.text = toggle.title
-            content.secondaryText = toggle.detail.isEmpty ? nil : toggle.detail
+            content.text = item.title
+            content.secondaryText = item.detail.isEmpty ? nil : item.detail
             content.secondaryTextProperties.color = .secondaryLabel
             cell.contentConfiguration = content
             let toggleSwitch = UISwitch()
-            toggleSwitch.isOn = toggle.isOn
+            toggleSwitch.isOn = item.isOn
             toggleSwitch.onTintColor = Theme.accent
             toggleSwitch.tag = indexPath.section == memorySection ? -1 : indexPath.row
             toggleSwitch.addTarget(self, action: #selector(toggleChanged(_:)), for: .valueChanged)
