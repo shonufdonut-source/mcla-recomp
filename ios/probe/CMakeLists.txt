@@ -59,6 +59,21 @@ if(MCLA_GAME_DIR)
     target_include_directories(mcla_host PRIVATE ${MCLA_GAME_INCLUDES})
     target_link_libraries(mcla_host PRIVATE rex::runtime)
     target_compile_options(mcla_host PRIVATE ${MCLA_GAME_OPTIONS})
+    # The host sources include the SDK's UI headers (rex_app.h -> imgui). Static rexruntime
+    # carries rexui's objects but not its usage requirements, so take the include paths and
+    # definitions from those libraries without linking them a second time.
+    foreach(dep imgui::imgui SDL3::SDL3 renderdoc)
+        if(TARGET ${dep})
+            get_target_property(real ${dep} ALIASED_TARGET)
+            if(NOT real)
+                set(real ${dep})
+            endif()
+            target_include_directories(mcla_host PRIVATE
+                $<TARGET_PROPERTY:${real},INTERFACE_INCLUDE_DIRECTORIES>)
+            target_compile_definitions(mcla_host PRIVATE
+                $<TARGET_PROPERTY:${real},INTERFACE_COMPILE_DEFINITIONS>)
+        endif()
+    endforeach()
 
     target_compile_definitions(mcla_probe PRIVATE MCLA_HAS_GAME=1)
     target_link_libraries(mcla_probe_linkcheck PRIVATE mcla_recomp mcla_host)
