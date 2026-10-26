@@ -54,6 +54,10 @@ final class GameViewController: UIViewController {
 
     override func loadView() { view = metalView }
 
+    // The game has the whole screen: no clock or battery over it, the home bar fades.
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
@@ -69,6 +73,8 @@ final class GameViewController: UIViewController {
             share.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             share.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
         ])
+        // Faint after a few seconds so it does not sit over the game; it still takes taps.
+        UIView.animate(withDuration: 1, delay: 5, options: [.allowUserInteraction]) { share.alpha = 0.2 }
     }
 
     override func viewDidAppear(_ animated: Bool) {
