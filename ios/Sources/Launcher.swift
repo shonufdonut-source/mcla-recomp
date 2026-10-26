@@ -68,6 +68,13 @@ enum LaunchSettings {
         ("texture_cache_memory_limit_soft_lifetime", "10"),
         ("texture_cache_memory_limit_render_to_texture", "16"),
     ]
+    /// This GPU has no format for the game's compressed (DXT) textures, so the SDK unpacks them;
+    /// at 16 bits per texel instead of 32 they take half the memory (SDK patch 09).
+    static let smallTextures = LaunchToggle(
+        key: "smallTextures", title: "Smaller textures (16-bit)",
+        detail: "Half the texture memory; colours have slightly fewer shades",
+        cvar: "texture_dxt_16bpp", defaultValue: true)
+    static let memoryToggles = [memorySaver, smallTextures]
 
     static let toggles: [LaunchToggle] = [
         LaunchToggle(key: "vsync", title: "V-sync", detail: "Off can tear but reacts sooner",
@@ -94,6 +101,7 @@ enum LaunchSettings {
         if memorySaver.isOn {
             for (cvar, value) in memorySaverValues { mcla_game_set_option(cvar, value) }
         }
+        mcla_game_set_option(smallTextures.cvar, smallTextures.cvarValue)
         for (cvar, value) in LaunchPresets.detailValues.sorted(by: { $0.key < $1.key }) {
             mcla_game_set_option(cvar, value)
         }
@@ -139,7 +147,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "false", "mcla_depth_of_field": "false",
                               "mcla_msaa": "false", "mcla_city_lod": "0.5", "mcla_traffic_lod": "0.5",
                               "mcla_traffic_distance": "200", "mcla_pedestrians": "0.25",
-                              "mcla_parked_cars": "0.25", memorySaverKey: "true"]),
+                              "mcla_parked_cars": "0.25", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
         LaunchPreset(key: "low", title: "Low",
                      detail: "Simple car shadows, no blur, reduced distance and crowds. The starting point on this iPad.",
                      values: ["mcla_fps": "30", "resolution_scale": "1", "vsync": "true",
@@ -149,7 +157,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "false", "mcla_depth_of_field": "false",
                               "mcla_msaa": "false", "mcla_city_lod": "0.75", "mcla_traffic_lod": "0.75",
                               "mcla_traffic_distance": "300", "mcla_pedestrians": "0.5",
-                              "mcla_parked_cars": "0.5", memorySaverKey: "true"]),
+                              "mcla_parked_cars": "0.5", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
         LaunchPreset(key: "medium", title: "Medium",
                      detail: "Shadows in races, blur and motion blur on, most of the shipped distance and crowds.",
                      values: ["mcla_fps": "30", "resolution_scale": "1", "vsync": "true",
@@ -159,7 +167,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "true", "mcla_depth_of_field": "false",
                               "mcla_msaa": "false", "mcla_city_lod": "1.0", "mcla_traffic_lod": "1.0",
                               "mcla_traffic_distance": "350", "mcla_pedestrians": "0.75",
-                              "mcla_parked_cars": "0.75", memorySaverKey: "true"]),
+                              "mcla_parked_cars": "0.75", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
         LaunchPreset(key: "high", title: "High",
                      detail: "Everything as on the Xbox 360, at 60 fps. Likely too much for the A12X in the city.",
                      values: ["mcla_fps": "60", "resolution_scale": "1", "vsync": "true",
@@ -169,7 +177,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "true", "mcla_depth_of_field": "true",
                               "mcla_msaa": "false", "mcla_city_lod": "1.0", "mcla_traffic_lod": "1.0",
                               "mcla_traffic_distance": "400", "mcla_pedestrians": "1.0",
-                              "mcla_parked_cars": "1.0", memorySaverKey: "true"]),
+                              "mcla_parked_cars": "1.0", memorySaverKey: "true", "texture_dxt_16bpp": "true"]),
         LaunchPreset(key: "ultra", title: "Ultra",
                      detail: "Beyond the original: 1440p, MSAA, longer distances, full texture cache. Expect iOS to close the game on a 4 GB iPad.",
                      values: ["mcla_fps": "60", "resolution_scale": "2", "vsync": "true",
@@ -179,7 +187,7 @@ enum LaunchPresets {
                               "mcla_motion_blur": "true", "mcla_depth_of_field": "true",
                               "mcla_msaa": "true", "mcla_city_lod": "1.5", "mcla_traffic_lod": "1.25",
                               "mcla_traffic_distance": "500", "mcla_pedestrians": "1.0",
-                              "mcla_parked_cars": "1.0", memorySaverKey: "false"]),
+                              "mcla_parked_cars": "1.0", memorySaverKey: "false", "texture_dxt_16bpp": "false"]),
     ]
 
     static var selectedKey: String {
@@ -209,6 +217,8 @@ enum LaunchPresets {
             if let value = preset.values[toggle.cvar] { toggle.isOn = (value == "true") != toggle.invert }
         }
         if let saver = preset.values[memorySaverKey] { LaunchSettings.memorySaver.isOn = saver == "true" }
+        let textures = LaunchSettings.smallTextures
+        if let value = preset.values[textures.cvar] { textures.isOn = value == "true" }
         UserDefaults.standard.set(preset.values.filter { detailCvars.contains($0.key) },
                                   forKey: detailDefaultsKey)
         selectedKey = preset.key
@@ -616,13 +626,15 @@ final class GraphicsSettingsViewController: UITableViewController {
     }
 
     private func toggle(at indexPath: IndexPath) -> LaunchToggle {
-        indexPath.section == memorySection ? LaunchSettings.memorySaver : LaunchSettings.toggles[indexPath.row]
+        indexPath.section == memorySection ? LaunchSettings.memoryToggles[indexPath.row]
+                                           : LaunchSettings.toggles[indexPath.row]
     }
 
     override func numberOfSections(in tableView: UITableView) -> Int { LaunchSettings.choices.count + 3 }
 
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        section == effectsSection ? LaunchSettings.toggles.count : 1
+        if section == effectsSection { return LaunchSettings.toggles.count }
+        return section == memorySection ? LaunchSettings.memoryToggles.count : 1
     }
 
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -683,7 +695,8 @@ final class GraphicsSettingsViewController: UITableViewController {
             let toggleSwitch = UISwitch()
             toggleSwitch.isOn = item.isOn
             toggleSwitch.onTintColor = Theme.accent
-            toggleSwitch.tag = indexPath.section == memorySection ? -1 : indexPath.row
+            // Memory rows have negative tags: -1 for the first, -2 for the second.
+            toggleSwitch.tag = indexPath.section == memorySection ? -1 - indexPath.row : indexPath.row
             toggleSwitch.addTarget(self, action: #selector(toggleChanged(_:)), for: .valueChanged)
             cell.accessoryView = toggleSwitch
         }
@@ -709,7 +722,8 @@ final class GraphicsSettingsViewController: UITableViewController {
     }
 
     @objc private func toggleChanged(_ sender: UISwitch) {
-        let toggle = sender.tag < 0 ? LaunchSettings.memorySaver : LaunchSettings.toggles[sender.tag]
+        let toggle = sender.tag < 0 ? LaunchSettings.memoryToggles[-1 - sender.tag]
+                                    : LaunchSettings.toggles[sender.tag]
         toggle.isOn = sender.isOn
         leftPreset()
     }
