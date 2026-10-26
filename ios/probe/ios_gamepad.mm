@@ -24,8 +24,9 @@
 namespace mcla_ios {
 namespace {
 
-using rex::input::DeviceId;
-using rex::input::DeviceInfo;
+// The Xbox types and status codes (X_RESULT, X_INPUT_STATE, ...) live in these namespaces.
+using namespace rex;
+using namespace rex::input;
 
 // "GC" in the top bytes keeps these apart from the other drivers' device handles.
 constexpr uint64_t kDeviceBase = 0x4743000000000000ull;
@@ -95,14 +96,14 @@ class GameControllerDriver final : public rex::input::InputDriver {
                                             object:nil
                                              queue:nil
                                         usingBlock:^(NSNotification* note) {
-                                          Add(static_cast<GCController*>(note.object),
+                                          Add((GCController*)note.object,
                                               "connected");
                                         }];
     disconnect_observer_ = [center addObserverForName:GCControllerDidDisconnectNotification
                                                object:nil
                                                 queue:nil
                                            usingBlock:^(NSNotification* note) {
-                                             Remove(static_cast<GCController*>(note.object));
+                                             Remove((GCController*)note.object);
                                            }];
     for (GCController* controller in GCController.controllers) {
       Add(controller, "already connected");
