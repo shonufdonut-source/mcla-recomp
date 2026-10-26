@@ -1,0 +1,35 @@
+--- a/Common/CMakeLists.txt
++++ b/Common/CMakeLists.txt
+@@ -17,8 +17,14 @@
+ 
+ find_library(FOUNDATION_LIBRARY Foundation REQUIRED)
+ find_library(METAL_LIBRARY Metal REQUIRED)
+-find_library(APPKIT_LIBRARY AppKit REQUIRED)
+-find_library(IOKIT_LIBRARY IOKit REQUIRED)
++if(IOS)
++	# iOS has UIKit instead of AppKit and no public IOKit.
++	find_library(APPKIT_LIBRARY UIKit REQUIRED)
++	find_library(IOKIT_LIBRARY CoreGraphics REQUIRED)
++else()
++	find_library(APPKIT_LIBRARY AppKit REQUIRED)
++	find_library(IOKIT_LIBRARY IOKit REQUIRED)
++endif()
+ find_library(IOSURFACE_LIBRARY IOSurface REQUIRED)
+ find_library(QUARTZCORE_LIBRARY QuartzCore REQUIRED)
+ target_link_libraries(MoltenVK_Common PUBLIC
+--- a/MoltenVK/CMakeLists.txt
++++ b/MoltenVK/CMakeLists.txt
+@@ -6,7 +6,12 @@
+ # easier to maintain in conjunction with the Xcode project file.
+ file(GLOB_RECURSE SOURCES "MoltenVK/*.c" "MoltenVK/*.cpp" "MoltenVK/*.m" "MoltenVK/*.mm")
+ 
+-add_library(MoltenVK SHARED ${SOURCES})
++if(IOS)
++	# Linked statically into the app; no dylib to embed or load at runtime.
++	add_library(MoltenVK STATIC ${SOURCES})
++else()
++	add_library(MoltenVK SHARED ${SOURCES})
++endif()
+ add_library(MoltenVK::MoltenVK ALIAS MoltenVK)
+ 
+ target_include_directories(MoltenVK

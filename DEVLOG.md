@@ -51,3 +51,13 @@ Legend: **[device]** verified on the iPad, **[pc]** verified on the Windows PC, 
 - Decision: game files live in the app's Documents folder (On My iPad > MCLA). The PC prep script (M3) will
   arrange files for that layout.
 - Privacy note: do not stage game files in iCloud Drive. Use On My iPad.
+
+## 2026-10-25: M1b step 1, cross-compiling the SDK for iOS (CI probe, no game data)
+
+- [CI] Workflow `ios-sdk.yml` clones ReXGlue v0.10.0, applies this repo's SDK patches plus `ios/sdk/patches/*`,
+  and configures for `CMAKE_SYSTEM_NAME=iOS`, arm64, iOS 16.
+- [CI] Run 1 stopped at configure: the Khronos Vulkan loader's CMake cannot handle iOS. Fix (patch 01): skip the
+  loader on iOS. iOS has no loader or ICD search; MoltenVK will be called directly, the way the SDK's PS5 path
+  links its driver (`vk_icdGetInstanceProcAddr`). That source change in `vulkan_instance.cpp` is still to do.
+- [read] Fibers (`fiber_posix.cpp`, ucontext) are only used for the guest `CreateFiber` API, not every guest
+  thread. Whether iOS allows ucontext is to be shown by the compile.

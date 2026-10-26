@@ -29,6 +29,12 @@ jobs:
           git -C sdk apply "$GITHUB_WORKSPACE/patches/rexglue-minmax-blend-factor.patch"
           if [ -d ios/sdk/patches ]; then
             for p in ios/sdk/patches/*.patch; do [ -e "$p" ] && git -C sdk apply "$GITHUB_WORKSPACE/$p"; done
+            # ios/sdk/patches/<name>/*.patch applies inside the submodule sdk/thirdparty/<name>.
+            for d in ios/sdk/patches/*/; do
+              [ -d "$d" ] || continue
+              sub="sdk/thirdparty/$(basename "$d")"
+              for p in "$d"*.patch; do [ -e "$p" ] && git -C "$sub" apply "$GITHUB_WORKSPACE/$p"; done
+            done
           fi
           git -C sdk status --short | head -20
 
